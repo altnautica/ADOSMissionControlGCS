@@ -100,9 +100,8 @@ export function SendToVehicleDialog({ open, onClose, p, showGeofence, showRally,
   // A plan written for one autopilot or vehicle class, sent to another.
   const planProfile = useMissionStore((s) => s.vehicleProfile);
   const targetProfile = useReportedVehicleProfile(targetId);
-  const planConfined = useMissionStore((s) => s.placeClass === "confined");
   const targetPilot = usePilotState(targetId).pilot;
-  const targetRouteCheck = targetPilot?.placeClass === "confined" ? targetPilot.routeCheck : null;
+  const targetRouteCheck = targetPilot?.routeCheck ?? null;
   const profileMismatch = !!planProfile && !!targetProfile && !sameProfile(planProfile, targetProfile);
   const describeProfile = (profile: PlanVehicleProfile) =>
     `${t(`autopilot.${profile.autopilot}`)} ${t(`vehicleClass.${profile.vehicleClass}`)}`;
@@ -358,9 +357,9 @@ export function SendToVehicleDialog({ open, onClose, p, showGeofence, showRally,
                 );
               })}
             </ul>
-            {/* A confined plan: the drone's route check of the mission it
-                holds, before it is flown. */}
-            {planConfined && targetRouteCheck && (
+            {/* The drone's route check of the mission it holds, before it
+                is flown, in either place class. */}
+            {targetRouteCheck && (
               <div className="rounded border border-border-default px-3 py-2" data-testid="send-route-check">
                 <RouteCheckReport routeCheck={targetRouteCheck} />
               </div>

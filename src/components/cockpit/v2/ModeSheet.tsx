@@ -159,22 +159,33 @@ export function ModeSheet({ droneId, pilot, groundStationLink, onClose }: ModeSh
               {specString("pilot.avoid.fixedwing_note")}
             </p>
           ) : (
-            <div className="flex gap-2">
-              {SHEET.avoidance.values.map((v, i) => {
-                const name = `avoid:${v as "brake" | "bypass" | "off"}` as const;
-                return (
-                  <HoldButton
-                    key={v}
-                    holdMs={v === "off" && pilot?.avoid !== "off" ? SHEET.avoidance.confirm_off.ms : 0}
-                    className={pill(pilot?.avoid === v, pending === name)}
-                    onFire={() => act(name, SHEET.avoidance.labels[i])}
-                    title={SHEET.avoidance.labels[i]}
-                  >
-                    {SHEET.avoidance.labels[i]}
-                  </HoldButton>
-                );
-              })}
-            </div>
+            <>
+              <div className="flex gap-2">
+                {SHEET.avoidance.values.map((v, i) => {
+                  const name = `avoid:${v as "brake" | "bypass" | "off"}` as const;
+                  const explain = (SHEET.avoidance.explain as Record<string, string>)[v];
+                  return (
+                    <HoldButton
+                      key={v}
+                      holdMs={v === "off" && pilot?.avoid !== "off" ? SHEET.avoidance.confirm_off.ms : 0}
+                      className={pill(pilot?.avoid === v, pending === name)}
+                      onFire={() => act(name, SHEET.avoidance.labels[i])}
+                      title={`${SHEET.avoidance.labels[i]}: ${explain}`}
+                    >
+                      {SHEET.avoidance.labels[i]}
+                    </HoldButton>
+                  );
+                })}
+              </div>
+              <ul data-testid="avoid-explain" className="flex flex-col gap-0.5 text-[11px] leading-snug text-text-secondary">
+                {SHEET.avoidance.values.map((v, i) => (
+                  <li key={v} className={pilot?.avoid === v ? "text-text-primary" : undefined}>
+                    <span className="font-semibold">{SHEET.avoidance.labels[i]}:</span>{" "}
+                    {(SHEET.avoidance.explain as Record<string, string>)[v]}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </Section>
 

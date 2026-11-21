@@ -2,7 +2,7 @@
 
 /**
  * @module cockpit/v2/RouteCheckReport
- * @description The confined profile's route check, as the pilot reports it
+ * @description The pilot's route check of the loaded mission, as it reports it
  * (`pilot.route_check`): the state line (route clear with the clearance it
  * keeps, not seen yet, or too tight with the tightest leg, its clearance and
  * the clearance it needs) and where the tightest checked point is. Shown on

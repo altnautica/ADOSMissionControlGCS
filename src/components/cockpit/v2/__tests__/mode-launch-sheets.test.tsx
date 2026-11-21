@@ -92,6 +92,18 @@ describe("ModeSheet", () => {
     expect(screen.getByTestId("fixedwing-avoid-note").textContent).toBe(specString("pilot.avoid.fixedwing_note"));
   });
 
+  it("explains each avoidance mode, Bypass routing round obstacles", () => {
+    render(
+      <IntlWrapper>
+        <ModeSheet droneId="d1" pilot={pilot({ avoid: "bypass" })} groundStationLink={false} onClose={() => {}} />
+      </IntlWrapper>,
+    );
+    const explain = screen.getByTestId("avoid-explain");
+    expect(explain.textContent).toContain("Bypass: Route round obstacles");
+    expect(explain.textContent).toContain("Brake: Stop and hold at obstacles");
+    expect(screen.getByText("Bypass").closest("[title]")?.getAttribute("title")).toBe("Bypass: Route round obstacles");
+  });
+
   it("Escape closes it", () => {
     const onClose = vi.fn();
     render(
