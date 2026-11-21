@@ -5,7 +5,8 @@
  * @description One flight-controller setup step, drawn generically from the
  * agent's step schema: title and body (spec text keys with the step's args),
  * the pose / motor-order picture, a progress ring, the motor or surface
- * question, operator inputs, live values, blockers, the result, and the action
+ * question, operator inputs, the parameters the step will write (each with
+ * what it is for), live values, blockers, the result, and the action
  * buttons with their confirm tier (tap, 1.5 s hold, or a hold that reads
  * "Propellers are removed"). The closing `ados_intro` step is the same data in
  * the "Meet ADOS Pilot" layout.
@@ -18,8 +19,8 @@ import { AlertTriangle, CheckCircle2, CircleDashed, Gamepad2, Loader2, MinusCirc
 
 import { HoldButton } from "@/components/cockpit/v2/HoldButton";
 import { inputArgs, liveRows, outputQuestion } from "@/lib/fc-setup/parse";
-import { formatValue, optionText, setupImageUrl, setupLabel, setupRefusalText, setupText } from "@/lib/fc-setup/strings";
-import { HOLD_CONFIRM_MS, type ActionStyle, type InputOption, type SetupAction, type SetupStep, type SetupValue, type StepInput, type StepState } from "@/lib/fc-setup/types";
+import { formatValue, optionText, paramNote, setupImageUrl, setupLabel, setupRefusalText, setupText } from "@/lib/fc-setup/strings";
+import { HOLD_CONFIRM_MS, type ActionStyle, type InputOption, type ParamRow, type SetupAction, type SetupStep, type SetupValue, type StepInput, type StepState } from "@/lib/fc-setup/types";
 import { cn } from "@/lib/utils";
 
 /** The step id whose actions render as the "Meet ADOS Pilot" screen. */
@@ -183,6 +184,8 @@ export function StepCard({ step, busy, error, onAction }: StepCardProps) {
         </div>
       )}
 
+      {step.params.length > 0 && <ParamTable step={step.step} rows={step.params} />}
+
       {live.length > 0 && <ValueTable title={t("live")} group="live" rows={live} args={step.args} />}
 
       {step.blockers.length > 0 && (
@@ -212,6 +215,30 @@ export function StepCard({ step, busy, error, onAction }: StepCardProps) {
         </div>
       )}
     </section>
+  );
+}
+
+/** The parameters a step will write, each with what it is for when the spec
+ *  says (the obstacle backstop rows of the ADOS safety profile). */
+function ParamTable({ step, rows }: { step: string; rows: ParamRow[] }) {
+  return (
+    <div className="rounded-md border border-border-default bg-bg-tertiary/40 px-3 py-2" data-testid="setup-params">
+      <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">{setupText(`setup.${step}.params`)}</h3>
+      <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 text-sm">
+        {rows.map((r) => {
+          const note = paramNote(step, r.name);
+          return (
+            <div key={r.name} className="contents">
+              <dt className="min-w-0 text-text-secondary">
+                <span className="font-mono text-text-primary">{r.name}</span>
+                {note && <span className="block text-xs">{note}</span>}
+              </dt>
+              <dd className="text-right font-mono tabular-nums text-text-primary">{formatValue(r.value)}</dd>
+            </div>
+          );
+        })}
+      </dl>
+    </div>
   );
 }
 

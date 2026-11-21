@@ -22,6 +22,25 @@ const ACCEL_POSES = ["accel_level", "accel_left", "accel_right", "accel_nose_dow
 const MOTORS = 4;
 /** The demo FC has an RC receiver bound (the intro's `rc_present`). */
 const DEMO_RC_PRESENT = true;
+/** The ArduCopter profile rows the `ados_profile` step will write
+ *  (`args.params`), the obstacle backstop at the default 1.5 m pilot margin:
+ *  the FC's proximity stop at its 1 m minimum, inside that margin. */
+const DEMO_PROFILE_PARAMS: Json[] = [
+  { name: "MAV_GCS_SYSID", value: 1 },
+  { name: "FS_GCS_ENABLE", value: 4 },
+  { name: "FS_GCS_TIMEOUT", value: 3 },
+  { name: "FS_THR_ENABLE", value: 5 },
+  { name: "GUID_TIMEOUT", value: 1 },
+  { name: "RC_OVERRIDE_TIME", value: 1 },
+  { name: "BATT_FS_LOW_ACT", value: 2 },
+  { name: "BATT_FS_CRT_ACT", value: 1 },
+  { name: "OA_TYPE", value: 0 },
+  { name: "AVOID_ENABLE", value: 2 },
+  { name: "AVOID_MARGIN", value: 1 },
+  { name: "AVOID_BEHAVE", value: 1 },
+  { name: "PRX1_TYPE", value: 2 },
+  { name: "SRTL_POINTS", value: 500 },
+];
 
 interface DemoState {
   deviceId: string;
@@ -166,7 +185,7 @@ function enter(e: DemoState, wizard: "ground" | "air", step: string): void {
       };
       break;
     case "ados_profile":
-      Object.assign(s, { state: "waiting_user", actions: [action("apply")] });
+      Object.assign(s, { state: "waiting_user", args: { params: DEMO_PROFILE_PARAMS }, actions: [action("apply")] });
       break;
     case "ados_intro":
       // The engine leads with the no-RC choice when it saw no RC receiver.

@@ -25,6 +25,7 @@ const intro: SetupStep = {
   body_key: "setup.ados_intro.body",
   args: { fallback_mode: "fc_manual" },
   inputs: [],
+  params: [],
   image: null,
   state: "waiting_user",
   progress: null,

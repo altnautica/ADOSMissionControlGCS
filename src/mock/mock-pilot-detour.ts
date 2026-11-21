@@ -12,7 +12,9 @@
 
 import type { Json } from "./mock-pilot-wire";
 
-/** A detour round a wall on the leg to waypoint 3, 7 m to its free point. */
+/** A detour round a wall on the leg to waypoint 3, 7 m to its free point:
+ *  the planner's way swings 6 m west of the wall's end and back onto the leg
+ *  (`plan_ned`, north/east metres, drone to the free point). */
 export const DEMO_MISSION_DETOUR_PIN: Json = {
   armed: true,
   landed: false,
@@ -22,6 +24,14 @@ export const DEMO_MISSION_DETOUR_PIN: Json = {
   avoid_state: "detour",
   mission: { state: "paused", seq: 3, total: 6 },
   mission_detour: { seq: 3, target_ned: [18.25, 0.0, -5.0], since_ms: Date.now() },
+  plan_ned: [
+    [4.0, -1.0],
+    [7.0, -4.5],
+    [10.5, -6.0],
+    [14.0, -5.0],
+    [16.5, -2.5],
+    [18.25, 0.0],
+  ],
   banner: { text_key: "pilot.banner.mission_detour", args: { wp: "3" }, until_ms: null },
 };
 

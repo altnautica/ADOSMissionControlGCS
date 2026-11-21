@@ -13,6 +13,7 @@ import {
   type ConfirmKind,
   type InputOption,
   type OutputQuestion,
+  type ParamRow,
   type SetupAction,
   type SetupFrame,
   type SetupReport,
@@ -60,6 +61,16 @@ function scalarMap(v: unknown, skip: (key: string) => boolean = () => false): Re
 
 function strings(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((s): s is string => typeof s === "string" && s !== "") : [];
+}
+
+function parseParams(raw: unknown): ParamRow[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ParamRow[] = [];
+  for (const r of raw) {
+    const name = isObj(r) ? str(r.name) : null;
+    if (name && isObj(r) && isScalar(r.value)) out.push({ name, value: r.value });
+  }
+  return out;
 }
 
 export function parseAction(raw: unknown): SetupAction | null {
@@ -129,6 +140,7 @@ export function parseStep(raw: unknown): SetupStep | null {
     body_key: str(raw.body_key) ?? "",
     args: scalarMap(raw.args, (k) => k === "inputs"),
     inputs: isObj(raw.args) ? parseInputs(raw.args.inputs) : [],
+    params: isObj(raw.args) ? parseParams(raw.args.params) : [],
     image: str(raw.image),
     state,
     progress: progress === null ? null : Math.min(1, Math.max(0, progress)),

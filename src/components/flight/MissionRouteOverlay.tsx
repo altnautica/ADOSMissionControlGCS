@@ -18,12 +18,13 @@ import { planIndicesForSeqs, useMissionStore } from "@/stores/mission-store";
 import { useDroneManager } from "@/stores/drone-manager";
 import { usePilotState } from "@/lib/cockpit/use-pilot-state";
 import { specString } from "@/lib/cockpit/spec-strings";
-import { gapSeqs } from "@/lib/hud/mission-stall";
+import { gapReasonText } from "@/lib/hud/mission-stall";
 import { useDronePlanIdentity, useMissionMirror } from "@/lib/mission/mission-mirror";
 import { useCssVarColors } from "@/hooks/use-css-var-colors";
 
 /** Route in the accent, the waypoint being flown to in the warning hue, a
- * waypoint the drone skipped (`mission.gaps`) as an open ring in the error hue.
+ * waypoint the drone skipped (`mission.gaps`) as an open ring in the error hue
+ * whose tooltip names why it was skipped.
  * Leaflet writes colours into SVG attributes, which cannot hold var(). */
 const ROUTE_TOKENS = ["--alt-accent-primary", "--alt-status-warning", "--alt-status-error"] as const;
 
@@ -52,12 +53,21 @@ export function MissionRouteOverlay() {
     : localCurrent;
   const route = useMemo(() => points.map((p) => p.pos), [points]);
   // The skipped items count in the FC's sequence: the mirror carries it, the
-  // local plan maps it the way MISSION_CURRENT is mapped.
-  const gapKey = gapSeqs(pilot?.mission).join(",");
+  // local plan maps it the way MISSION_CURRENT is mapped. Each keeps the
+  // reason of its latest gap.
+  const gapKey = JSON.stringify((pilot?.mission?.gaps ?? []).map((g) => [g.seq, g.reason]));
   const skipped = useMemo(() => {
-    const seqs = gapKey ? gapKey.split(",").map(Number) : [];
-    if (mirrored) return new Set(points.filter((p) => seqs.includes(p.seq)).map((p) => p.index));
-    return new Set(waypoints.length > 0 ? planIndicesForSeqs(droneId, seqs) : []);
+    const gaps = JSON.parse(gapKey) as [number, string | null][];
+    const out = new Map<number, string | null>();
+    for (const [seq, reason] of gaps) {
+      const indices = mirrored
+        ? points.filter((p) => p.seq === seq).map((p) => p.index)
+        : waypoints.length > 0
+          ? planIndicesForSeqs(droneId, [seq])
+          : [];
+      for (const index of indices) out.set(index, reason);
+    }
+    return out;
   }, [gapKey, mirrored, points, waypoints, droneId]);
 
   if (current === null || points.length === 0) return null;
@@ -83,7 +93,7 @@ export function MissionRouteOverlay() {
           >
             <Tooltip direction="top" offset={[0, -6]}>
               <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 10 }}>
-                WP {p.index + 1} · {specString("setup.state.skipped")}
+                {gapLine(p.index + 1, skipped.get(p.index) ?? null)}
               </span>
             </Tooltip>
           </CircleMarker>
@@ -113,4 +123,13 @@ export function MissionRouteOverlay() {
       )}
     </>
   );
+}
+
+/** A skipped waypoint's tooltip: "WP n · Skipped · <reason>" (`pilot.gap.line`),
+ *  or "WP n · Skipped" for a gap without a reason. */
+function gapLine(wp: number, reason: string | null): string {
+  const text = gapReasonText(reason);
+  return text
+    ? specString("pilot.gap.line", { wp, reason: text })
+    : `WP ${wp} · ${specString("setup.state.skipped")}`;
 }

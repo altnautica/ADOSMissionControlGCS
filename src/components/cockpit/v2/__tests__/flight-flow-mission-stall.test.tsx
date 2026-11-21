@@ -133,6 +133,20 @@ describe("mission stall voice and banners", () => {
     expect(voiceLine({ ...base, banner: skipped }, { ...base, banner: skipped })).toBeNull();
   });
 
+  it("speaks a detour per leg, a routed return once and an unreachable waypoint", () => {
+    const detour = { seq: 4, targetNed: [12, -3, -20] as [number, number, number], sinceMs: 1000 };
+    expect(voiceLine(base, { ...base, missionDetour: detour })).toBe(specString("voice.mission_detour"));
+    expect(voiceLine({ ...base, missionDetour: detour }, { ...base, missionDetour: { ...detour } })).toBeNull();
+    expect(voiceLine({ ...base, missionDetour: detour }, { ...base, missionDetour: { ...detour, seq: 5 } })).toBe(
+      specString("voice.mission_detour"),
+    );
+    const route = { remainingM: 180, straightM: 120, sinceMs: 2000 };
+    expect(voiceLine(base, { ...base, returnRoute: route })).toBe(specString("voice.return_routed"));
+    expect(voiceLine({ ...base, returnRoute: route }, { ...base, returnRoute: { ...route, remainingM: 170 } })).toBeNull();
+    const unreachable = { textKey: "pilot.banner.mission_wp_no_path", args: { wp: "6" }, untilMs: null };
+    expect(voiceLine(base, { ...base, banner: unreachable })).toBe(specString("voice.waypoint_unreachable"));
+  });
+
   it.each([
     ["pilot.banner.mission_stalled", { wp: "3", in_s: 45 }, "No progress to waypoint 3 · Holding · Skipping in 45 s"],
     ["pilot.banner.mission_stalled_hold", { wp: "3" }, "No progress to waypoint 3 · Holding for you"],

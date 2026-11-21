@@ -4,7 +4,8 @@
  * The Flight map draws the mission route and the waypoint the aircraft is
  * heading to only while MISSION_CURRENT maps onto the open plan; a plan the
  * aircraft does not hold (no current waypoint) is never drawn as its route.
- * The waypoints the drone skipped (`mission.gaps`) are marked as skipped.
+ * The waypoints the drone skipped (`mission.gaps`) are marked as skipped,
+ * each tooltip naming why.
  */
 
 import { cleanup, render } from "@testing-library/react";
@@ -94,7 +95,31 @@ describe("MissionRouteOverlay", () => {
     );
     const wp = route[index!];
     expect(skipped.map((m) => m.getAttribute("data-pos"))).toEqual([`${wp.lat},${wp.lon}`]);
-    expect(getByText(`WP ${index! + 1} · Skipped`)).toBeTruthy();
+    expect(getByText(`WP ${index! + 1} · Skipped · No progress before the countdown`)).toBeTruthy();
+  });
+
+  it("names a waypoint proven unreachable in its tooltip", () => {
+    const frame = stallFrame as { data?: Record<string, unknown> };
+    const raw = frame.data ?? (frame as Record<string, unknown>);
+    const mission = raw.mission as Record<string, unknown>;
+    const pilot = parsePilotState({
+      ...raw,
+      mission: { ...mission, gaps: [{ seq: 2, reason: "unreachable_inside_obstacle", at_ms: 1 }] },
+    })!;
+    useDroneManager.setState({ selectedDroneId: "drone-1" });
+    useNavStreamStore.getState().setPilot("drone-1", pilot);
+    useUploadReceiptsStore.getState().record("mission", {
+      droneId: "drone-1",
+      contentHash: missionContentHash(route, { transitAltM: null }),
+      at: Date.now(),
+      total: 6,
+    });
+    useMissionStore.setState({ currentWaypoint: 3 });
+    const index = missionSeqToWaypointIndex(route, 2, false, { transitAltM: null })!;
+
+    const { getByText } = render(<MissionRouteOverlay />);
+
+    expect(getByText(`WP ${index + 1} · Skipped · Inside an obstacle`)).toBeTruthy();
   });
 
   it("marks nothing skipped once the open plan is no longer the one the drone holds", () => {

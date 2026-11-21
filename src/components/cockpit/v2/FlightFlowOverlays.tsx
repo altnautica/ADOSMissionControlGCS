@@ -105,13 +105,25 @@ export interface VoiceState {
   rth: boolean;
   missionStall?: MissionStall | null;
   banner?: PilotState["banner"];
+  missionDetour?: PilotState["missionDetour"];
+  returnRoute?: PilotState["returnRoute"];
 }
 
 /** The voice line for a change of pilot state, or null. Exported for tests. */
 export function voiceLine(prev: VoiceState, next: VoiceState): string | null {
   const stallKey = missionStallVoiceKey(
-    { missionStall: prev.missionStall ?? null, banner: prev.banner ?? null },
-    { missionStall: next.missionStall ?? null, banner: next.banner ?? null },
+    {
+      missionStall: prev.missionStall ?? null,
+      banner: prev.banner ?? null,
+      missionDetour: prev.missionDetour ?? null,
+      returnRoute: prev.returnRoute ?? null,
+    },
+    {
+      missionStall: next.missionStall ?? null,
+      banner: next.banner ?? null,
+      missionDetour: next.missionDetour ?? null,
+      returnRoute: next.returnRoute ?? null,
+    },
   );
   if (stallKey) return specString(stallKey);
   if (!prev.rth && next.rth) return specString("voice.low_battery");
@@ -145,18 +157,21 @@ function useVoicePrompts(droneId: string, pilot: PilotState | null): void {
   const owner = pilot?.owner ?? null;
   const fcModeName = pilot?.fcModeName ?? null;
   const rth = pilot?.rthCountdownS != null;
-  // Each pilot frame is a new object; the voice compares the stall and the
-  // banner by content, so a repeated frame says nothing.
+  // Each pilot frame is a new object; the voice compares the stall, the
+  // banner, the detour and the routed return by content, so a repeated frame
+  // says nothing.
   const missionStall = pilot?.missionStall ?? null;
   const banner = pilot?.banner ?? null;
+  const missionDetour = pilot?.missionDetour ?? null;
+  const returnRoute = pilot?.returnRoute ?? null;
   useEffect(() => {
-    const next = { owner, fcModeName, mission, rth, missionStall, banner };
+    const next = { owner, fcModeName, mission, rth, missionStall, banner, missionDetour, returnRoute };
     const before = prev.current;
     prev.current = next;
     if (!enabled || !before) return;
     const line = voiceLine(before, next);
     if (line) speak(line);
-  }, [enabled, owner, fcModeName, mission, rth, missionStall, banner]);
+  }, [enabled, owner, fcModeName, mission, rth, missionStall, banner, missionDetour, returnRoute]);
 }
 
 /** `hidden` (a stale pilot) keeps the banner's timing but draws nothing, so

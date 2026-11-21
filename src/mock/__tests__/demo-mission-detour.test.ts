@@ -1,14 +1,14 @@
 /**
  * @module mock/demo-mission-detour.test
  * @description The demo pins for a blocked mission leg: the detour frame
- * carries the item it resumes at and its free point, and both banners read
- * from the spec strings.
+ * carries the item it resumes at, its free point and the planned way there
+ * the map previews, and both banners read from the spec strings.
  * @license GPL-3.0-only
  */
 
 import { describe, expect, it } from "vitest";
 
-import { parsePilotState } from "@/lib/hud/cockpit-frames";
+import { parsePilotState, routeRoundPreview } from "@/lib/hud/cockpit-frames";
 import { specText } from "@/lib/hud/spec-text";
 import { DEMO_MISSION_DETOUR_PIN, DEMO_MISSION_UNREACHABLE_PIN } from "@/mock/mock-pilot-detour";
 import { demoPilotWire } from "@/mock/mock-pilot-wire";
@@ -22,6 +22,15 @@ describe("demo mission detour", () => {
     const b = parsePilotState(wire)?.banner;
     expect(b?.textKey).toBe("pilot.banner.mission_detour");
     expect(specText(b!.textKey, b!.args)).toBe("Leg to waypoint 3 blocked · Routing round");
+  });
+
+  it("previews the planned way round, ending at the free point", () => {
+    const pilot = parsePilotState(demoPilotWire(DEMO_MISSION_DETOUR_PIN))!;
+    const preview = routeRoundPreview(pilot);
+    expect(preview?.kind).toBe("detour");
+    expect(preview!.pathNe.length).toBeGreaterThanOrEqual(2);
+    expect(preview!.targetNe).toEqual([18.25, 0]);
+    expect(preview!.pathNe[preview!.pathNe.length - 1]).toEqual(preview!.targetNe);
   });
 
   it("words the immediate skip of an unreachable waypoint", () => {

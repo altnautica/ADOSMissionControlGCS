@@ -1,16 +1,18 @@
 /**
  * @module nav/ned-geo
  * @description Local north/east metres → latitude/longitude about the EKF
- * origin, and the follow target placed on the global (tile) minimap: the
+ * origin, the follow target placed on the global (tile) minimap (the
  * target, and while it is sought its search ellipse, predicted path and the
- * vantage point (`followSceneTarget` decides what shows). At the ranges a
- * follow target sits from its origin the spherical offset is exact to well
- * under a centimetre.
+ * vantage point; `followSceneTarget` decides what shows), and the pilot's way
+ * round an obstacle (a mission detour or a routed return). At the ranges
+ * these sit from their origin the spherical offset is exact to well under a
+ * centimetre.
  *
  * @license GPL-3.0-only
  */
 
 import { followSceneTarget } from "@/lib/hud/local-scene";
+import type { RouteRoundPreview } from "@/lib/hud/cockpit-mission";
 import type { FollowState, SearchArea } from "@/lib/hud/nav-types";
 import { offsetPoint } from "@/lib/drawing/geo-utils";
 
@@ -76,4 +78,23 @@ export function followTargetGeo(
     predictedPath: (t.predictedPath ?? []).map(geo),
     vantage: t.vantageNe ? geo(t.vantageNe) : null,
   };
+}
+
+/** The way round on the tile map: the planned path and the detour's free
+ *  point as `[lat, lon]`. */
+export interface RouteRoundGeo {
+  kind: RouteRoundPreview["kind"];
+  path: Array<[number, number]>;
+  target: [number, number] | null;
+}
+
+/** The pilot's way round placed about the EKF origin; null without a
+ *  preview or without the origin. */
+export function routeRoundGeo(
+  preview: RouteRoundPreview | null,
+  origin: { lat: number; lon: number } | null,
+): RouteRoundGeo | null {
+  if (!preview || !origin) return null;
+  const geo = ([n, e]: readonly [number, number]) => nedToLatLon(origin, n, e);
+  return { kind: preview.kind, path: preview.pathNe.map(geo), target: preview.targetNe ? geo(preview.targetNe) : null };
 }
