@@ -24,7 +24,7 @@ import { chipFacts, chipSecondary, flightStateChip, type ChipView } from "@/lib/
 import { requestPilotAction, sendPilotInput } from "@/lib/input/pilot-stream";
 import { mockEngine } from "@/mock/engine";
 import { mockPilot } from "@/mock/mock-pilot";
-import { DEMO_POSITION_UNVERIFIED_PIN } from "@/mock/mock-pilot-wire";
+import { DEMO_POSITION_UNCERTAIN_PIN, DEMO_POSITION_UNVERIFIED_PIN } from "@/mock/mock-pilot-wire";
 import { MockProtocol } from "@/mock/mock-protocol";
 import { useDroneManager } from "@/stores/drone-manager";
 import { useNavStreamStore } from "@/stores/nav-stream-store";
@@ -219,6 +219,20 @@ describe("pinned unverified position", () => {
     expect(v.text).toBe("Position unverified · Flow disagrees");
     expect(v.secondary.map((l) => l.text)).toContain("Holding · position unverified");
     expect(mockPilot.positionUnverified()).toEqual({ reason: "flow_disagrees", detail: null });
+  });
+});
+
+describe("pinned uncertain position", () => {
+  it("keeps flying and says how uncertain and how slow", () => {
+    handle()!.pin(DEMO_POSITION_UNCERTAIN_PIN);
+    vi.advanceTimersByTime(100);
+    expect(pilot().poseUncertaintyM).toBe(2.8);
+    expect(pilot().positionUnverified).toBeNull();
+    const v = chip();
+    expect(v.ruleId).not.toBe("position_unverified");
+    expect(v.secondary.map((l) => l.text)).toEqual(
+      expect.arrayContaining(["Position uncertain ±2.8 m", "Position uncertain: 1.5 m/s max"]),
+    );
   });
 });
 

@@ -131,6 +131,18 @@ export const DEMO_POSITION_UNVERIFIED_PIN: Json = {
 };
 
 /**
+ * The pin for a position that is uncertain but still flown: after a long
+ * corridor the external position's one-sigma is 2.8 m, inside the pilot's
+ * 5 m limit, so the pilot keeps flying with its speed cut to 1.5 m/s. From
+ * the console: `__adosDemoPilot.pin(DEMO_POSITION_UNCERTAIN_PIN)` while
+ * flying.
+ */
+export const DEMO_POSITION_UNCERTAIN_PIN: Json = {
+  pose_uncertainty_m: 2.8,
+  speed_cap: { reason: "position-uncertain", v_h_mps: 1.5 },
+};
+
+/**
  * The pin for a low-battery return the estimate of the way home asked for
  * above the 30 % floor: 1 km out, the return needs 52 % and the battery
  * reads 48 %, so the pilot counts down to its SmartRTL. From the console:

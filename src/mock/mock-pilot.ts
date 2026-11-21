@@ -13,7 +13,8 @@
  * failsafe, a tuning step, the GNSS-denied speed cap via
  * `pin({ speed_cap: { reason: "gnss-denied", v_h_mps: 2 } })`, a position
  * the optical flow disagrees with via `DEMO_POSITION_UNVERIFIED_PIN`, which
- * the demo Navigation echoes as a degraded pose, a mission stall with its
+ * the demo Navigation echoes as a degraded pose, an uncertain position
+ * flown slowed via `DEMO_POSITION_UNCERTAIN_PIN`, a mission stall with its
  * countdown, see mock-pilot-stall; the confined-place route check and its
  * speed cap, see mock-pilot-confined) through
  * `window.__adosDemoPilot` (see
