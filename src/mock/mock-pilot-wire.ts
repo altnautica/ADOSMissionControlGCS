@@ -148,6 +148,21 @@ export const DEMO_LOW_BATTERY_ENERGY_PIN: Json = {
 };
 
 /**
+ * The pin for a return the pilot routes itself: the FC's SmartRTL met a
+ * wall on its way home, so the pilot flies GUIDED round it and lands at
+ * home. The way left is 38 m against 24 m straight; the reserve counts the
+ * 38. From the console: `__adosDemoPilot.pin(DEMO_ROUTED_RETURN_PIN)`.
+ */
+export const DEMO_ROUTED_RETURN_PIN: Json = {
+  armed: true,
+  landed: false,
+  owner: "goto",
+  return_route: { remaining_m: 38, straight_m: 24, since_ms: Date.now() },
+  battery_reserve: { need_pct: 34, basis: "energy", return_s: 41 },
+  banner: { text_key: "pilot.banner.return_routed", args: {}, until_ms: null },
+};
+
+/**
  * The pin for a follow under trees: the pilot sees leaves 6 m along the
  * follow skill's way that the airframe passes under at 3.9 m, and follow-me
  * lowers its height to that. From the console, while the demo follows:
