@@ -27,6 +27,7 @@ function input(over: Partial<LocalSceneInput> = {}): LocalSceneInput {
     target: null,
     drone: null,
     plan: null,
+    movers: [],
     ...over,
   };
 }
@@ -116,6 +117,13 @@ describe("buildLocalScene", () => {
     const blocked = localPlan({ planNed: [], goalNed: [1, 0, -5], avoidState: "blocked" });
     expect(buildLocalScene(input({ plan: blocked })).plan).toEqual({ points: [], goal: [100, 90], blocked: true });
     expect(buildLocalScene(input()).plan).toBeNull();
+  });
+
+  it("projects the pilot's movers with their 2 s arrow and sigma ring", () => {
+    const scene = buildLocalScene(
+      input({ movers: [{ id: 3, kind: "person", source: "vision", ne: [5, 0], velNe: [0, 1], sigmaM: 0.5, ageMs: 1500 }] }),
+    );
+    expect(scene.movers).toEqual([{ id: 3, kind: "person", sx: 100, sy: 50, leadX: 120, leadY: 50, ringPx: 5, faded: true }]);
   });
 });
 

@@ -64,8 +64,36 @@ export function demoPilotWire(over: Json = {}): Json {
     place_class: "open",
     // The 3D lidar's voxel map and the speed that stops inside its seen-clear range.
     sensing: { tier: "lidar3d", clear_range_m: 11.6, speed_limit_mps: 4.2 },
+    // People the camera tracks and something the lidar sees move, on the
+    // demo clock (`demoMovers`; the demo pilot refreshes them every frame).
+    movers: demoMovers(Date.now()),
     ...over,
   };
+}
+
+/**
+ * The moving obstacles the demo pilot tracks at epoch ms `nowMs`, in the
+ * demo room's local frame (walls at ±6 m about the EKF origin): a person
+ * walking an 8 m beat along the north wall at up to 1.4 m/s, a second person
+ * drifting by the south wall whose track goes unmeasured for 2 s of every 6
+ * (drawn faded), and something the lidar sees circling at 4.5 m.
+ */
+export function demoMovers(nowMs: number): Json[] {
+  const t = nowMs / 1000;
+  const a = 0.33 * t + 1;
+  return [
+    { id: 3, kind: "person", source: "vision", ne: [4.5, 4 * Math.sin(0.35 * t)], vel_ne: [0, 1.4 * Math.cos(0.35 * t)], sigma_m: 0.4, age_ms: 120 },
+    {
+      id: 5,
+      kind: "person",
+      source: "vision",
+      ne: [-4.5, -2 + 1.5 * Math.sin(0.2 * t)],
+      vel_ne: [0, 0.3 * Math.cos(0.2 * t)],
+      sigma_m: 0.6,
+      age_ms: t % 6 < 2 ? 1500 : 100,
+    },
+    { id: 9, kind: "unknown", source: "scan", ne: [4.5 * Math.cos(a), 4.5 * Math.sin(a)], vel_ne: [-1.5 * Math.sin(a), 1.5 * Math.cos(a)], sigma_m: 0.25, age_ms: 0 },
+  ];
 }
 
 /** The airframe balance row before the first steady hover has taught it. */

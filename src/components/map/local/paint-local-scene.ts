@@ -7,12 +7,17 @@
  * while the pilot reports blocked. While the follow target is sought, its
  * search ellipse (faint fill, dashed ring), the predicted path (fine dash)
  * and the vantage point (a small diamond) draw in the coast colour under it.
+ * The pilot's tracked movers draw between the plan and the target, in their
+ * kind's colour (`MOVER_KIND_COLOR`): a sigma ring, a 2 s velocity arrow and
+ * a mark (person disc, vehicle square, anything else a triangle), faded once
+ * unmeasured for over a second.
  *
  * @license GPL-3.0-only
  */
 
 import tokens from "@/lib/cockpit-spec/tokens.json";
-import type { LocalScene } from "@/lib/hud/local-scene";
+import type { LocalScene, LocalSceneMover } from "@/lib/hud/local-scene";
+import { MOVER_KIND_COLOR } from "@/lib/hud/movers";
 
 export interface LocalSceneColours {
   ink: string;
@@ -44,6 +49,67 @@ const PLAN_DASH: number[] = [5, 4];
 const SEARCH_DASH: number[] = [4, 3];
 const PREDICTED_DASH: number[] = [2, 3];
 const VANTAGE_HALF_PX = 4;
+const MOVER_MARK_PX = 4.5;
+const MOVER_HEAD_PX = 4;
+const MOVER_FADED_ALPHA = 0.4;
+const MOVER_RING_DASH: number[] = [3, 2];
+
+function moverGlyph(ctx: CanvasRenderingContext2D, m: LocalSceneMover): void {
+  const r = MOVER_MARK_PX;
+  ctx.beginPath();
+  if (m.kind === "person") {
+    ctx.arc(m.sx, m.sy, r, 0, Math.PI * 2);
+  } else if (m.kind === "vehicle") {
+    ctx.rect(m.sx - r, m.sy - r, r * 2, r * 2);
+  } else {
+    ctx.moveTo(m.sx, m.sy - r * 1.2);
+    ctx.lineTo(m.sx + r, m.sy + r * 0.8);
+    ctx.lineTo(m.sx - r, m.sy + r * 0.8);
+    ctx.closePath();
+  }
+}
+
+/** The pilot's tracked movers: per mover a faint dashed sigma ring, an arrow
+ *  to where it will be in 2 s and its kind's mark, faded when unmeasured. */
+export function paintMovers(ctx: CanvasRenderingContext2D, movers: readonly LocalSceneMover[], c: LocalSceneColours): void {
+  for (const m of movers) {
+    const colour = MOVER_KIND_COLOR[m.kind];
+    ctx.globalAlpha = m.faded ? MOVER_FADED_ALPHA : 1;
+    if (m.ringPx > MOVER_MARK_PX) {
+      ctx.beginPath();
+      ctx.arc(m.sx, m.sy, m.ringPx, 0, Math.PI * 2);
+      ctx.fillStyle = colour;
+      ctx.globalAlpha *= 0.12;
+      ctx.fill();
+      ctx.globalAlpha = m.faded ? MOVER_FADED_ALPHA : 1;
+      ctx.setLineDash(MOVER_RING_DASH);
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    if (m.leadX !== null && m.leadY !== null) {
+      const a = Math.atan2(m.leadY - m.sy, m.leadX - m.sx);
+      ctx.beginPath();
+      ctx.moveTo(m.sx, m.sy);
+      ctx.lineTo(m.leadX, m.leadY);
+      ctx.moveTo(m.leadX - MOVER_HEAD_PX * Math.cos(a + 0.5), m.leadY - MOVER_HEAD_PX * Math.sin(a + 0.5));
+      ctx.lineTo(m.leadX, m.leadY);
+      ctx.lineTo(m.leadX - MOVER_HEAD_PX * Math.cos(a - 0.5), m.leadY - MOVER_HEAD_PX * Math.sin(a - 0.5));
+      ctx.strokeStyle = colour;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+    moverGlyph(ctx, m);
+    ctx.fillStyle = colour;
+    ctx.fill();
+    // A dark outline keeps it legible on tiles.
+    ctx.strokeStyle = c.glass;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+}
 
 /** The pilot's planned path, dashed, and a ring on its goal. */
 export function paintPlan(ctx: CanvasRenderingContext2D, plan: NonNullable<LocalScene["plan"]>, c: LocalSceneColours): void {
@@ -229,6 +295,7 @@ export function paintLocalScene(
   ctx.fillText(originLabel, ox + 7, oy - 3);
 
   if (scene.plan) paintPlan(ctx, scene.plan, colours);
+  paintMovers(ctx, scene.movers, colours);
   if (scene.target) paintTarget(ctx, scene.target, colours);
   if (scene.drone) paintDrone(ctx, scene.drone, colours);
 }

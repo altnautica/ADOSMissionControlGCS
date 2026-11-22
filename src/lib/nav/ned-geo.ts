@@ -4,9 +4,9 @@
  * origin, the follow target placed on the global (tile) minimap (the
  * target, and while it is sought its search ellipse, predicted path and the
  * vantage point; `followSceneTarget` decides what shows), and the pilot's way
- * round an obstacle (a mission detour or a routed return). At the ranges
- * these sit from their origin the spherical offset is exact to well under a
- * centimetre.
+ * round an obstacle (a mission detour or a routed return), and the moving
+ * obstacles the pilot tracks. At the ranges these sit from their origin the
+ * spherical offset is exact to well under a centimetre.
  *
  * @license GPL-3.0-only
  */
@@ -14,6 +14,8 @@
 import { followSceneTarget } from "@/lib/hud/local-scene";
 import type { RouteRoundPreview } from "@/lib/hud/cockpit-mission";
 import type { FollowState, SearchArea } from "@/lib/hud/nav-types";
+import { moverMarks, type MoverMark } from "@/lib/hud/movers";
+import type { Mover } from "@/lib/hud/pilot-fields";
 import { offsetPoint } from "@/lib/drawing/geo-utils";
 
 /** `(north, east)` metres from `origin` as `[lat, lon]` degrees. */
@@ -97,4 +99,44 @@ export function routeRoundGeo(
   if (!preview || !origin) return null;
   const geo = ([n, e]: readonly [number, number]) => nedToLatLon(origin, n, e);
   return { kind: preview.kind, path: preview.pathNe.map(geo), target: preview.targetNe ? geo(preview.targetNe) : null };
+}
+
+/** A tracked mover on the tile map: its position, its 2 s velocity arrow
+ *  (shaft tip and the two barb ends, or null while it is still) as
+ *  `[lat, lon]`, its one-sigma radius in metres and whether it is faded. */
+export interface MoverGeo {
+  id: number;
+  kind: MoverMark["kind"];
+  position: [number, number];
+  arrow: { tip: [number, number]; barbs: [[number, number], [number, number]] } | null;
+  sigmaM: number;
+  faded: boolean;
+}
+
+/** The barbs are this share of the arrow's length, at ±30°. */
+const BARB_SHARE = 0.25;
+
+/** The pilot's movers placed about the EKF origin; none without it. */
+export function moversGeo(movers: readonly Mover[], origin: { lat: number; lon: number } | null): MoverGeo[] {
+  if (!origin) return [];
+  return moverMarks(movers).map((m) => {
+    let arrow: MoverGeo["arrow"] = null;
+    if (m.leadNe) {
+      const [tn, te] = m.leadNe;
+      const [dn, de] = [tn - m.ne[0], te - m.ne[1]];
+      const back = (rad: number): [number, number] => {
+        const [c, s] = [Math.cos(rad), Math.sin(rad)];
+        return nedToLatLon(origin, tn - BARB_SHARE * (dn * c - de * s), te - BARB_SHARE * (dn * s + de * c));
+      };
+      arrow = { tip: nedToLatLon(origin, tn, te), barbs: [back(Math.PI / 6), back(-Math.PI / 6)] };
+    }
+    return {
+      id: m.id,
+      kind: m.kind,
+      position: nedToLatLon(origin, m.ne[0], m.ne[1]),
+      arrow,
+      sigmaM: m.sigmaM,
+      faded: m.faded,
+    };
+  });
 }

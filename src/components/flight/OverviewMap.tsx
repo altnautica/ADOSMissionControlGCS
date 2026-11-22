@@ -28,6 +28,7 @@ import { MeasureToolManager } from "@/components/map/MeasureToolManager";
 import { FleetPluginSlot } from "@/components/plugins/FleetPluginSlot";
 import { MissionRouteOverlay } from "@/components/flight/MissionRouteOverlay";
 import { RouteRoundOverlay } from "@/components/flight/RouteRoundOverlay";
+import { MoversOverlay } from "@/components/flight/MoversOverlay";
 import { homeIcon } from "@/components/map/home-icon";
 
 const GcsMarker = dynamic(
@@ -321,6 +322,9 @@ export function OverviewMap({
 
         {/* The pilot's way round an obstacle: a mission detour or a routed return */}
         <RouteRoundOverlay />
+
+        {/* The moving obstacles the pilot tracks: people, vehicles, things seen moving */}
+        <MoversOverlay />
 
         {/* Planned vs actual path comparison */}
         {showPlannedPath && <PlannedVsActualOverlay />}

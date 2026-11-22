@@ -105,6 +105,7 @@ export function LocalFrameMap({ droneId, className, headerExtra, compact = false
     target: data.target,
     drone: data.drone,
     plan: data.plan,
+    movers: data.movers,
   });
 
   const { toast } = useToast();

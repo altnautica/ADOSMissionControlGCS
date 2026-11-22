@@ -7,8 +7,9 @@
  * last poll is older than 5 s), the scan in the map frame (only while both
  * the scan and the pose are under 500 ms old), the follow target (with its
  * search area, vantage point and predicted path while it is sought), the
- * pilot's planned path and goal (while its frame is fresh), and the drone
- * from the pose when fresh, else from LOCAL_POSITION_NED (`fcPos`).
+ * pilot's planned path and goal and the moving obstacles it tracks (while
+ * its frame is fresh), and the drone from the pose when fresh, else from
+ * LOCAL_POSITION_NED (`fcPos`).
  * Heading comes from ATTITUDE when fresh, else from the pose.
  *
  * @license GPL-3.0-only
@@ -26,6 +27,7 @@ import {
   type TrailPoint,
 } from "@/lib/hud/local-frame";
 import type { PilotState } from "@/lib/hud/cockpit-frames";
+import type { Mover } from "@/lib/hud/pilot-fields";
 import {
   followSceneTarget,
   localPlan,
@@ -48,10 +50,16 @@ import { useTelemetryStore } from "@/stores/telemetry-store";
 /** Redraw cadence for the age-based rules (scan and pose expire at 500 ms). */
 const FRAME_TICK_MS = 250;
 const NO_TRAIL: TrailPoint[] = [];
+const NO_MOVERS: Mover[] = [];
 
 /** The pilot's planned path and goal while its frame is fresh, else null. */
 export function framePlan(pilot: Stamped<PilotState> | undefined, now: number): LocalScenePlan | null {
   return pilot && pilotFresh(pilot.receivedAt, now) ? localPlan(pilot.data) : null;
+}
+
+/** The moving obstacles the pilot tracks while its frame is fresh, else none. */
+export function frameMovers(pilot: Stamped<PilotState> | undefined, now: number): readonly Mover[] {
+  return pilot && pilotFresh(pilot.receivedAt, now) ? pilot.data.movers : NO_MOVERS;
 }
 
 export interface LocalFrameData {
@@ -63,6 +71,7 @@ export interface LocalFrameData {
   target: LocalSceneTarget | null;
   drone: LocalSceneDrone | null;
   plan: LocalScenePlan | null;
+  movers: readonly Mover[];
   /** The drone is placed from LOCAL_POSITION_NED, not the SLAM pose. */
   fcPos: boolean;
 }
@@ -105,6 +114,7 @@ export function useLocalFrameData(droneId: string): LocalFrameData {
     target,
     drone,
     plan: framePlan(feed?.pilot, now),
+    movers: frameMovers(feed?.pilot, now),
     fcPos: !pose && local !== undefined,
   };
 }
