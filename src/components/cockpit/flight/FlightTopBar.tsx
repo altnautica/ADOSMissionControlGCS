@@ -38,6 +38,7 @@ import { NavSourceChip } from "../NavSourceChip";
 import { StatusPill } from "./StatusPill";
 import { ConfinedChip } from "./ConfinedChip";
 import { NoRcChip } from "./NoRcChip";
+import { GoalKindChip } from "./GoalKindChip";
 import { SensingChip } from "./SensingChip";
 import { BatteryCell, LinkCell } from "./TopBarCells";
 import { ControllerCell } from "./ControllerCell";
@@ -163,8 +164,9 @@ function FlightTopBarInner({ droneId }: { droneId: string }) {
           <ConfinedChip droneId={droneId} />
           {/* The no-RC declaration: never moved off the bar either. */}
           <NoRcChip droneId={droneId} />
-          {/* The sensing tier: first to give way, while the bar has room for every item. */}
+          {/* The sensing tier and the skill's goal: first to give way, while the bar has room for every item. */}
           {!compact && stage === 0 && <SensingChip droneId={droneId} />}
+          {!compact && stage === 0 && <GoalKindChip droneId={droneId} />}
           {/* The short reserve text once the bar is short of room. */}
           <BatteryCell droneId={droneId} short={compact || stage > 0} />
           {!hidden.has("link_icon") && <LinkCell droneId={droneId} detail={!hidden.has("link_text")} />}

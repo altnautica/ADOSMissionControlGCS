@@ -81,24 +81,27 @@ afterEach(() => {
 });
 
 const NAV = 16;
+const TAKEOFF = 22;
 const CHANGE_SPEED = 178;
 
 describe("pathMissionItems", () => {
-  it("flies the loop as NAV_WAYPOINTs closed back on the start, after ArduPilot's home slot", () => {
+  it("takes off, then flies the loop as NAV_WAYPOINTs closed back on the start, after ArduPilot's home slot", () => {
     const items = pathMissionItems(PATROL, true);
     expect(items.map((it) => it.seq)).toEqual(items.map((_, i) => i));
-    // Home, the loop's one speed, then every point and the return to the start.
-    expect(items.map((it) => it.command)).toEqual([NAV, CHANGE_SPEED, ...Array(PATROL.length + 1).fill(NAV)]);
+    // Home, the loop's one speed, the take-off, then every point and the return to the start.
+    expect(items.map((it) => it.command)).toEqual([NAV, CHANGE_SPEED, TAKEOFF, ...Array(PATROL.length + 1).fill(NAV)]);
     expect(items[0]).toMatchObject({ frame: 0, x: Math.round(PATROL[0].lat * 1e7) });
-    expect(items[1]).toMatchObject({ param1: 1, param2: PATROL[0].speed });
-    expect(items[2]).toMatchObject({ x: Math.round(PATROL[0].lat * 1e7), y: Math.round(PATROL[0].lon * 1e7), z: PATROL[0].alt });
-    expect(items.at(-1)).toMatchObject({ x: items[2].x, y: items[2].y });
+    expect(items[1]).toMatchObject({ current: 1, param1: 1, param2: PATROL[0].speed });
+    expect(items[2]).toMatchObject({ current: 0, frame: 3, x: Math.round(PATROL[0].lat * 1e7), z: PATROL[0].alt });
+    expect(items[3]).toMatchObject({ x: Math.round(PATROL[0].lat * 1e7), y: Math.round(PATROL[0].lon * 1e7), z: PATROL[0].alt });
+    expect(items.at(-1)).toMatchObject({ x: items[3].x, y: items[3].y });
   });
 
   it("has no home slot for PX4", () => {
     const items = pathMissionItems(PATROL, false);
-    expect(items).toHaveLength(PATROL.length + 2);
-    expect(items[1]).toMatchObject({ seq: 1, command: NAV, frame: 3, x: Math.round(PATROL[0].lat * 1e7) });
+    expect(items).toHaveLength(PATROL.length + 3);
+    expect(items[1]).toMatchObject({ seq: 1, command: TAKEOFF });
+    expect(items[2]).toMatchObject({ seq: 2, command: NAV, frame: 3, x: Math.round(PATROL[0].lat * 1e7) });
   });
 
   it("writes a speed change ahead of the leg that flies it", () => {
@@ -109,8 +112,8 @@ describe("pathMissionItems", () => {
     ];
     const items = pathMissionItems(path, false);
     // The closing leg leaves the 9 m/s point, so its speed precedes the closing item.
-    expect(items.map((it) => it.command)).toEqual([CHANGE_SPEED, NAV, NAV, NAV, CHANGE_SPEED, NAV]);
-    expect(items[4].param2).toBe(9);
+    expect(items.map((it) => it.command)).toEqual([CHANGE_SPEED, TAKEOFF, NAV, NAV, NAV, CHANGE_SPEED, NAV]);
+    expect(items[5].param2).toBe(9);
   });
 });
 
@@ -136,7 +139,9 @@ describe("DemoMissionLoader", () => {
     await settle(new DemoMissionLoader().onSelection(DRONE, protocol));
 
     const { waypoints } = useMissionStore.getState();
-    expect(waypoints).toHaveLength(PATROL.length + 1);
+    // The take-off, every point and the return to the start.
+    expect(waypoints).toHaveLength(PATROL.length + 2);
+    expect(waypoints[0].command).toBe("TAKEOFF");
     // Opened as the drone's own demo plan, saved, so nothing reads as unsaved.
     const lib = usePlanLibraryStore.getState();
     expect(lib.activePlanId).toBe(`demo-drone-mission-${DRONE}`);
@@ -151,13 +156,13 @@ describe("DemoMissionLoader", () => {
     const seq = missionSeqForTarget(PATROL, 3, holdsHomeSlot(protocol));
     useMissionStore.getState().applyMissionCurrent(DRONE, seq);
     const current = useMissionStore.getState().currentWaypoint;
-    expect(current).toBe(3);
+    expect(current).toBe(4);
     expect(waypoints[current!].lat).toBeCloseTo(PATROL[3].lat, 6);
     expect(waypoints[current!].lon).toBeCloseTo(PATROL[3].lon, 6);
 
     // Heading home to point 0 is the closing waypoint, the last of the route.
     useMissionStore.getState().applyMissionCurrent(DRONE, missionSeqForTarget(PATROL, 0, true));
-    expect(useMissionStore.getState().currentWaypoint).toBe(PATROL.length);
+    expect(useMissionStore.getState().currentWaypoint).toBe(PATROL.length + 1);
   });
 
   it("acts once per selection", async () => {
@@ -224,11 +229,11 @@ describe("DemoMissionLoader", () => {
     await settle(loader.onSelection(OTHER, charlie));
 
     const { waypoints } = useMissionStore.getState();
-    expect(waypoints).toHaveLength(FLIGHT_PATHS[2].length + 1);
+    expect(waypoints).toHaveLength(FLIGHT_PATHS[2].length + 2);
     expect(waypoints[0].lat).toBeCloseTo(FLIGHT_PATHS[2][0].lat, 6);
     expect(waypoints[0].lon).toBeCloseTo(FLIGHT_PATHS[2][0].lon, 6);
     useMissionStore.getState().applyMissionCurrent(OTHER, missionSeqForTarget(FLIGHT_PATHS[2], 1, false));
-    expect(useMissionStore.getState().currentWaypoint).toBe(1);
+    expect(useMissionStore.getState().currentWaypoint).toBe(2);
   });
 });
 

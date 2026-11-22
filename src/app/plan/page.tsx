@@ -52,6 +52,7 @@ import { PlannerBar, useSendable } from "./PlannerBar";
 import { usePlannerShareImport } from "./use-planner-share-import";
 import { useSharedPlanLink } from "./use-shared-plan-link";
 import { usePlannedHomeSeed } from "./use-planned-home-seed";
+import { useDemoRouteCheck } from "./use-demo-route-check";
 import { nudgeWaypoints, pasteWaypoints } from "./waypoint-edits";
 import { planElementSupport } from "./plan-element-support";
 
@@ -132,6 +133,9 @@ export default function MissionPlannerPage() {
 
   // A plan without a planned home gets one, and the home's ground is sampled.
   usePlannedHomeSeed();
+
+  // Demo mode: the target drone's demo pilot reports the open plan's route check.
+  useDemoRouteCheck();
 
   // Open a plan shared by link (#plan=...): saved to the library, opened when
   // nothing unsaved would be lost, and the fragment cleared.

@@ -648,7 +648,8 @@ export const MOCK_PARAMS: MockParam[] = [
   { name: "LAND_SPEED_HIGH", value: 0, type: 9 },
   { name: "LAND_ALT_LOW", value: 1000, type: 9 },
   { name: "LAND_REPOSITION", value: 1, type: 9 },
-  { name: "RTL_ALT", value: 1500, type: 9 },
+  // Clears the demo patrol's rising ground (884 m home, 900 m on the loop).
+  { name: "RTL_ALT", value: 4000, type: 9 },
   { name: "RTL_ALT_FINAL", value: 0, type: 9 },
   { name: "RTL_CLIMB_MIN", value: 0, type: 9 },
   { name: "RTL_LOIT_TIME", value: 5000, type: 9 },

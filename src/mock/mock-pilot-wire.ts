@@ -203,6 +203,16 @@ export const DEMO_ROUTED_RETURN_PIN: Json = {
 };
 
 /**
+ * The goal Follow-Me sends a demo pilot and the viewpoint the pilot picks
+ * for it: an intent, flown 8 m off the subject at 15° from north, 4.5 m up,
+ * seeing nine tenths of its predicted way.
+ */
+export const DEMO_FOLLOW_GOAL = {
+  goal_kind: "follow_intent",
+  view: { bearing_deg: 15, radius_m: 8, height_m: 4.5, visibility: 0.92 },
+} as const satisfies Json;
+
+/**
  * The pin for a follow under trees: the pilot sees leaves 6 m along the
  * follow skill's way that the airframe passes under at 3.9 m, and follow-me
  * lowers its height to that. From the console, while the demo follows:
@@ -213,6 +223,7 @@ export const DEMO_UNDER_LEAVES_PIN: Json = {
   landed: false,
   owner: "skill",
   skill: { plugin_id: "com.altnautica.follow-me", skill_id: "follow-me", label: "Follow-Me" },
+  ...DEMO_FOLLOW_GOAL,
   overhead_ahead: { lease_id: 1, fly_under_agl_m: 3.9, ahead_m: 6 },
   follow: { phase: "following", height_setpoint_m: 3.9, height_lowered: true, height_reason: "canopy" },
 };
@@ -227,6 +238,7 @@ export const DEMO_BEACON_PIN: Json = {
   landed: false,
   owner: "skill",
   skill: { plugin_id: "com.altnautica.follow-me", skill_id: "follow-me", label: "Follow-Me" },
+  ...DEMO_FOLLOW_GOAL,
   follow: { phase: "following", subject_source: "beacon" },
 };
 

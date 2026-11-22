@@ -42,6 +42,7 @@ import { demoNavStreamBlockedAt, demoTelemetryFrozen } from "./demo-link";
 import { MockProtocol } from "./mock-protocol";
 import { DEMO_DRONES } from "./drones";
 import {
+  DEMO_FOLLOW_GOAL,
   DEMO_STICK_LIMITS,
   DEMO_SURFACE_OPS,
   PilotPins,
@@ -149,10 +150,13 @@ export class MockPilot {
   /** The last stick frame's axes and sequence number. */
   private lastAxes: readonly number[] = [0, 0, 0, 0];
   private lastSeq = 0;
+  /** Sessions started so far (see `session`). */
+  private sessions = 0;
 
   start(droneId: string): void {
     this.stop();
     this.droneId = droneId;
+    this.sessions++;
     this.wire = this.freshWire();
     this.pins.clear();
     this.stall.reset();
@@ -200,6 +204,13 @@ export class MockPilot {
     }
     this.droneId = null;
     if (typeof window !== "undefined") delete window.__adosDemoPilot;
+  }
+
+  /** The drone this pilot publishes for and the number of its session
+   * (one per `start`), or null while stopped. A caller that started the
+   * pilot stops it only while its own session runs. */
+  session(): { droneId: string; id: number } | null {
+    return this.droneId ? { droneId: this.droneId, id: this.sessions } : null;
   }
 
   /** Pin fields over the live state (demo scenarios); `{}` clears. */
@@ -254,10 +265,15 @@ export class MockPilot {
     if (value === true) {
       this.wire.owner = "skill";
       this.wire.skill = { plugin_id: FOLLOW_ME_PLUGIN_ID, skill_id: "follow-me", label: "Follow-Me" };
+      // Follow-Me sends an intent; the pilot reports the viewpoint it picked.
+      this.wire.goal_kind = DEMO_FOLLOW_GOAL.goal_kind;
+      this.wire.view = DEMO_FOLLOW_GOAL.view;
       host.pushPluginSkillState(own, "follow.state", { state: "active" });
     } else {
       if (this.wire.owner === "skill") this.wire.owner = "pilot";
       this.wire.skill = null;
+      this.wire.goal_kind = undefined;
+      this.wire.view = undefined;
       if (pinned) this.pins.drop("follow", "owner", "skill");
       this.resumedSearch = false;
       host.pushPluginSkillState(own, "follow.state", { state: "idle" });

@@ -34,6 +34,7 @@ import type { PathWaypoint } from "./flight-paths";
 import type { MockProtocol } from "./mock-protocol";
 
 const MAV_CMD_NAV_WAYPOINT = 16;
+const MAV_CMD_NAV_TAKEOFF = 22;
 const MAV_FRAME_GLOBAL = 0;
 const MAV_FRAME_GLOBAL_RELATIVE_ALT = 3;
 
@@ -43,23 +44,30 @@ export function holdsHomeSlot(protocol: MockProtocol): boolean {
 }
 
 /**
- * The mission a demo loop is flown as: a NAV_WAYPOINT per path point and a
- * last one back on the first, so the route closes the loop the drone flies.
- * Each leg's speed rides a DO_CHANGE_SPEED where it changes, laid out exactly
- * as the planner writes one (the first mission item current, no heading set),
- * so a download re-expands to these same items and MISSION_CURRENT seqs map
- * onto the right waypoint. With `homeSlot` the ArduPilot layout: home (the
- * loop start) at seq 0.
+ * The mission a demo loop is flown as: a TAKEOFF at the loop start up to its
+ * height, then a NAV_WAYPOINT per path point and a last one back on the
+ * first, so the route closes the loop the drone flies and the plan it
+ * downloads to launches as a real one must. Each leg's speed rides a
+ * DO_CHANGE_SPEED where it changes, laid out exactly as the planner writes
+ * one (the first mission item current, no heading set), so a download
+ * re-expands to these same items and MISSION_CURRENT seqs map onto the right
+ * waypoint. With `homeSlot` the ArduPilot layout: home (the loop start) at
+ * seq 0.
  */
 export function pathMissionItems(path: readonly PathWaypoint[], homeSlot: boolean): MissionItem[] {
   const points = path.length > 1 ? [...path, path[0]] : [...path];
+  // The take-off climbs at the loop start, then the loop is flown.
+  const flown = [
+    ...points.slice(0, 1).map((p) => ({ command: MAV_CMD_NAV_TAKEOFF, p })),
+    ...points.map((p) => ({ command: MAV_CMD_NAV_WAYPOINT, p })),
+  ];
   const items: MissionItem[] = [];
   const first = homeSlot ? 1 : 0;
   let seq = first;
   let speed: number | undefined;
-  points.forEach((p, k) => {
+  flown.forEach(({ command, p }, k) => {
     // The engine flies each leg at the speed of the point it leaves.
-    const legSpeed = k === 0 ? p.speed : points[k - 1].speed;
+    const legSpeed = k === 0 ? p.speed : flown[k - 1].p.speed;
     if (legSpeed !== speed) {
       items.push({ ...speedItem(legSpeed, seq), current: seq === first ? 1 : 0 });
       seq++;
@@ -68,7 +76,7 @@ export function pathMissionItems(path: readonly PathWaypoint[], homeSlot: boolea
     items.push({
       seq,
       frame: MAV_FRAME_GLOBAL_RELATIVE_ALT,
-      command: MAV_CMD_NAV_WAYPOINT,
+      command,
       current: seq === first ? 1 : 0,
       autocontinue: 1,
       param1: 0, param2: 0, param3: 0, param4: NaN,

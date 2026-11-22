@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import type { PilotState } from "@/lib/hud/cockpit-frames";
 import { chipInputs } from "@/lib/hud/chip-inputs";
 import { flightStateChip, type ChipView } from "@/lib/hud/flight-state";
+import { pilotFresh } from "@/lib/hud/pilot-fresh";
 import { specText } from "@/lib/hud/spec-text";
 import tokens from "@/lib/cockpit-spec/tokens.json";
 import { getFrames } from "@/lib/cockpit/layers/frame-store";
@@ -29,6 +30,19 @@ export interface PilotStateView {
 export function usePilotState(droneId: string | null | undefined): PilotStateView {
   const stamped = useNavStreamStore((s) => (droneId ? s.byDrone[droneId]?.pilot : undefined));
   return { pilot: stamped?.data ?? null, receivedAt: stamped?.receivedAt ?? null };
+}
+
+/** The drone's pilot state while it is fresh (`pilotFresh`), else null;
+ *  re-evaluated as it ages, so what it feeds hides once the frames stop, as
+ *  the cockpit's `useFreshPilot` does. */
+export function useFreshPilot(droneId: string | null | undefined): PilotState | null {
+  const { pilot, receivedAt } = usePilotState(droneId);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), CHIP_TICK_MS);
+    return () => clearInterval(t);
+  }, []);
+  return pilot && pilotFresh(receivedAt, now) ? pilot : null;
 }
 
 /** The chip shown while the drone has never sent a pilot state. */
