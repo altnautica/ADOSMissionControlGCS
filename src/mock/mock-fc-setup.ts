@@ -3,18 +3,20 @@
  * @description Demo stand-in for a drone agent's flight-controller setup
  * engine (`/api/v1/fc-setup`), so the aircraft setup wizard and the
  * agent-routed calibration panels work without a drone. It plays an ArduPilot
- * quad-X through the ground wizard: detection and frame done, a six-pose
- * accelerometer calibration, a timed compass calibration, a motor check with
- * the yes/no question, battery and initial-tune inputs, the FC profile and the
- * ADOS Pilot introduction. The air wizard waits on the ground wizard; its
- * autotune runs roll and pitch, then yaw, with progress and live gains.
- * @license GPL-3.0-only
+ * quad-X through the ground wizard, which starts interrupted (the agent
+ * restarted mid-run) on the frame step: the frame picture picker and the
+ * propulsion inputs, then a six-pose accelerometer calibration, a timed
+ * compass calibration, a motor check with the yes/no question, battery and
+ * initial-tune inputs, the FC profile and the ADOS Pilot introduction. The air
+ * wizard waits on the ground wizard; its autotune runs roll and pitch, then
+ * yaw, with progress and live gains.
  */
 
 import { fcSetupUrls, SetupRequestError, type SetupTransport } from "@/lib/fc-setup/client";
 import { parseFrame } from "@/lib/fc-setup/parse";
 import type { SetupFrame, StepState, Wizard } from "@/lib/fc-setup/types";
 import { resolveNodeId, useNodeRegistryStore } from "@/stores/node-registry";
+import { demoFcProfile } from "./mock-pilot-wire";
 
 type Json = Record<string, unknown>;
 
@@ -86,14 +88,11 @@ function create(deviceId: string): DemoState {
     state: "done",
     result: { firmware: "ArduCopter 4.5.7", vehicle_class: "multirotor" },
   });
-  Object.assign(steps["ground/frame"], {
-    state: "done",
-    image: "motor_order_quad_x",
-    result: { frame_class: "QUAD", frame_type: "X" },
-  });
+  // The run was interrupted on the frame step: it keeps its operator state.
+  enterFrame(steps["ground/frame"]);
   return {
     deviceId,
-    wizards: { ground: { state: "not_started", completed_at: null }, air: { state: "not_started", completed_at: null } },
+    wizards: { ground: { state: "interrupted", completed_at: null }, air: { state: "not_started", completed_at: null } },
     steps,
     order: { ground, air },
     snapshots: [],
@@ -126,7 +125,7 @@ function wizardOf(e: DemoState, id: "ground" | "air"): Json {
     available: (id === "ground" || groundDone) && blockers.length === 0,
     blockers,
     completed_at: e.wizards[id].completed_at,
-    steps: e.order[id].map((s) => e.steps[`${id}/${s}`]),
+    steps: e.order[id].map((s) => wire(e.steps[`${id}/${s}`])),
   };
 }
 
@@ -155,12 +154,41 @@ function emitWizard(e: DemoState, id: "ground" | "air"): void {
   for (const fn of e.listeners) fn({ kind: "wizard", ts_ms: Date.now(), data: wizardOf(e, id) });
 }
 
+/** The frame step waiting on the operator: the class and type picture
+ *  pickers (`images` per option, as the agent sends them) and the propulsion
+ *  numbers. */
+function enterFrame(s: Json): void {
+  Object.assign(s, { state: "waiting_user", image: "motor_order_quad_x", actions: [action("apply")] });
+  (s as Json).__inputs = {
+    frame_class: {
+      kind: "enum",
+      value: 1,
+      options: [1, 2, 3],
+      images: { "1": "motor_order_quad_x", "2": "motor_order_hexa_x", "3": "motor_order_octa_x" },
+      label_key: "setup.input.frame_class",
+    },
+    frame_type: {
+      kind: "enum",
+      value: 1,
+      options: [0, 1, 3],
+      images: { "0": "motor_order_quad_plus", "1": "motor_order_quad_x", "3": "motor_order_quad_h" },
+      label_key: "setup.input.frame_type",
+    },
+    prop_in: { kind: "number", value: 10, min: 2, max: 40, step: 0.5, unit: "in", label_key: "setup.input.prop_in" },
+    motor_kv: { kind: "number", value: 900, min: 50, max: 5000, step: 10, unit: "rpm/V", label_key: "setup.input.motor_kv" },
+    cells: { kind: "number", value: 4, min: 1, max: 14, step: 1, unit: "S", label_key: "setup.input.cells" },
+  };
+}
+
 /** Put a step into its operator-facing state when it becomes current. */
 function enter(e: DemoState, wizard: "ground" | "air", step: string): void {
   const s = e.steps[`${wizard}/${step}`];
   s.blockers = [];
   s.result = null;
   switch (step) {
+    case "frame":
+      enterFrame(s);
+      break;
     case "accel":
       Object.assign(s, { state: "waiting_user", image: ACCEL_POSES[0], progress: 0, live: { pose: 1 }, actions: [action("next_pose")] });
       break;
@@ -288,6 +316,13 @@ function doAction(e: DemoState, wizard: "ground" | "air", step: string, id: stri
       }
       break;
     }
+    case "frame:apply":
+      finish(e, wizard, step, {
+        frame_class: (args.frame_class as number) ?? 1,
+        frame_type: (args.frame_type as number) ?? 1,
+        prop_in: (args.prop_in as number) ?? 10,
+      });
+      break;
     case "level:start":
       finish(e, wizard, step, { pass: true });
       break;
@@ -324,6 +359,8 @@ function doAction(e: DemoState, wizard: "ground" | "air", step: string, id: stri
       break;
     case "ados_profile:apply":
       e.snapshots = [...e.snapshots, { file: `${new Date().toISOString().replace(/[:.]/g, "-")}.param`, ts: new Date().toISOString() }];
+      // The demo pilot's fc_profile row reads OK from now on.
+      demoFcProfile.applied = true;
       finish(e, wizard, step, { pass: true });
       break;
     case "ados_intro:use_ados":
@@ -369,7 +406,7 @@ export function demoSetupTransport(deviceId: string): SetupTransport {
       const parts = parsePath(path);
       if (parts[0] === "revert") return { ok: true, restored: 42, snapshot: (body as Json)?.snapshot ?? null };
       const wizard = asWizard(parts[0]);
-      if (wizard === "ground" && (parts[1] === "start" || parts[3] === "run") && isArmed(e)) {
+      if (wizard === "ground" && (parts[1] === "start" || parts[1] === "resume" || parts[3] === "run") && isArmed(e)) {
         // The agent refuses calibrations on an armed aircraft with `armed`.
         throw new SetupRequestError(409, "armed", "vehicle armed");
       }
@@ -377,6 +414,15 @@ export function demoSetupTransport(deviceId: string): SetupTransport {
         e.wizards[wizard] = { state: "running", completed_at: null };
         const first = e.order[wizard].find((id) => e.steps[`${wizard}/${id}`].state !== "done");
         if (first) enter(e, wizard, first);
+        return { ok: true, wizard: wizardOf(e, wizard) };
+      }
+      if (parts[1] === "resume") {
+        // Like the agent: only an interrupted run resumes, from its first
+        // unfinished step, keeping every step record.
+        if (e.wizards[wizard].state !== "interrupted") throw new SetupRequestError(409, "not_interrupted", "not interrupted");
+        e.wizards[wizard] = { state: "running", completed_at: null };
+        const next = e.order[wizard].find((id) => !["done", "skipped"].includes(e.steps[`${wizard}/${id}`].state as string));
+        if (next && e.steps[`${wizard}/${next}`].state === "pending") enter(e, wizard, next);
         return { ok: true, wizard: wizardOf(e, wizard) };
       }
       if (parts[1] === "abort") {
@@ -424,5 +470,6 @@ export function demoSetupTransport(deviceId: string): SetupTransport {
 export function resetDemoSetup(): void {
   for (const e of engines.values()) clearInterval(e.timer ?? undefined);
   engines.clear();
+  demoFcProfile.applied = false;
 }
 

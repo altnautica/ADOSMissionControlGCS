@@ -32,10 +32,12 @@ import type { CockpitAlertId } from "../band/cockpit-alert-rules";
 import type { PilotState } from "@/lib/hud/cockpit-frames";
 import type { NavSourceResult } from "@/lib/hud/nav-source";
 import {
+  alertGroup,
   controllerLost,
   pillAlerts,
   pilotFailsafe,
   pillSummary,
+  unsnoozedAlerts,
   type PillAlert,
   type PillSource,
 } from "@/lib/hud/status-pill";
@@ -44,6 +46,7 @@ import { simClockLabel } from "@/lib/hud/sim-clock";
 import { useDroneStore } from "@/stores/drone-store";
 import { useFlightSheet } from "./flight-sheet";
 import { PILL_COLOR, StatusPillList } from "./StatusPillList";
+import { useAlertSnooze } from "./use-alert-actions";
 
 /** The pill's word colour per severity: the chrome text when all is well. */
 const PILL_TEXT_COLOR: Record<keyof typeof PILL_COLOR, string> = {
@@ -204,12 +207,12 @@ function usePillState(droneId: string): { alerts: PillAlert[]; armed: boolean | 
     return () => clearInterval(id);
   }, []);
 
-  const surface: PillAlert[] = alerts.map((a) => ({
-    id: `alert:${a.id}:${a.detail ?? ""}`,
-    severity: a.level === "critical" ? "critical" : "warning",
-    text: label(a),
-    source: ALERT_SOURCE[a.id],
-  }));
+  const surface: PillAlert[] = alerts.map((a) => {
+    const id = `alert:${a.id}:${a.detail ?? ""}`;
+    const text = label(a);
+    const source = ALERT_SOURCE[a.id];
+    return { id, severity: a.level === "critical" ? "critical" : "warning", text, source, group: alertGroup(id, source), key: `${id}|${text}` };
+  });
   const armed = pillArmed(pilot, receivedAt !== null && pilotFresh(0, now - receivedAt), fcArmState);
   return {
     alerts: pillAlertsFor({
@@ -231,6 +234,12 @@ export function StatusPill({ droneId }: { droneId: string }) {
   const { alerts, armed, flashPhase } = usePillState(droneId);
   const simClock = usePilotState(droneId).pilot?.simClock ?? null;
   const [acked, setAcked] = useState<ReadonlySet<string>>(() => new Set());
+  // Hidden alerts are pruned only while the pilot and agent answer, so a
+  // stale frame never forgets them.
+  const { snoozed, setSnoozed } = useAlertSnooze(
+    alerts,
+    !alerts.some((a) => a.id === "pilot_not_answering" || a.id === "agent_unreachable"),
+  );
   // The list is a flight-screen sheet: one at a time, and the tips see it.
   const [open, setOpen] = useFlightSheet("status");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -239,7 +248,10 @@ export function StatusPill({ droneId }: { droneId: string }) {
   // While the list is open every alert in it counts as seen; opening and
   // closing it record them as acknowledged, so one that arrived while it was
   // open does not flash once it closes.
-  const summary = pillSummary(alerts, open ? new Set([...acked, ...alerts.map((a) => a.id)]) : acked);
+  // The pill counts what the list shows: a hidden warning drops out, a
+  // hidden critical stays.
+  const counted = unsnoozedAlerts(alerts, snoozed);
+  const summary = pillSummary(counted, open ? new Set([...acked, ...alerts.map((a) => a.id)]) : acked);
   const ackShown = useCallback((shown: string) => {
     if (shown === "") return;
     setAcked((prev) => {
@@ -311,7 +323,17 @@ export function StatusPill({ droneId }: { droneId: string }) {
           {simClockLabel(simClock)}
         </span>
       ) : null}
-      {open && <StatusPillList alerts={alerts} listRef={listRef} armed={armed} />}
+      {open && (
+        <StatusPillList
+          alerts={alerts}
+          listRef={listRef}
+          armed={armed}
+          droneId={droneId}
+          snoozed={snoozed}
+          onSnooze={setSnoozed}
+          onLeave={() => setOpen(false)}
+        />
+      )}
     </div>
   );
 }

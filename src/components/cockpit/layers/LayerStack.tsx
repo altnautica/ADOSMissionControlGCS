@@ -25,6 +25,7 @@ import { isDemoMode } from "@/lib/utils";
 import { memo, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { TargetController } from "@/components/cockpit/layers/TargetController";
+import { LayerBadges } from "@/components/cockpit/layers/LayerChips";
 import { useCockpitWidthClass } from "@/hooks/use-cockpit-width-class";
 import { useDetectionDemand } from "@/hooks/use-detection-demand";
 import { useElementSize } from "@/hooks/use-element-size";
@@ -125,6 +126,13 @@ export const LayerStack = memo(function LayerStack({ droneId, cameraId, view }: 
 
   useEffect(() => engine.setRunning(visible), [engine, visible]);
 
+  // The status chips the engine raised, drawn as buttons (a change is rare).
+  const [chipMask, setChipMask] = useState(0);
+  useEffect(() => {
+    engine.setChipListener(setChipMask);
+    return () => engine.setChipListener(null);
+  }, [engine]);
+
   useEffect(() => {
     if (!size) return;
     engine.resize(size.w, size.h, window.devicePixelRatio || 1);
@@ -187,6 +195,7 @@ export const LayerStack = memo(function LayerStack({ droneId, cameraId, view }: 
   return (
     <div ref={containerRef} className="tgt-layer" data-cockpit-layer="layer-stack" data-layer-level={vl.level}>
       <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden="true" />
+      <LayerBadges droneId={droneId} mask={chipMask} view={view} />
       {layers.has("targets") && (
         <TargetController droneId={droneId} cameraId={cameraId} engine={engine} layerRef={containerRef} size={size} />
       )}

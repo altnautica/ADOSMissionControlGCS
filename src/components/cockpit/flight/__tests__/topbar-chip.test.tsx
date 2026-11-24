@@ -2,7 +2,7 @@
  * @license GPL-3.0-only
  *
  * The flight-state chip takes at most 40 % of the top bar and ends a longer
- * text in an ellipsis, with the full text in its title and accessible name
+ * text in an ellipsis, with the full text in its accessible name
  * (`chip.aria`). At the compact classes it shows its compact face (the state
  * text alone). Its action button reads the spec's words.
  */
@@ -27,13 +27,21 @@ function pin(over: Record<string, unknown> = {}) {
   useNavStreamStore.getState().setPilot(DRONE, pilot, Date.now());
 }
 
+/** The chip's full text, as its accessible name (`chip.aria`) carries it. */
+function fullText(): string {
+  const label = screen.getByTestId("flight-state-chip").querySelector("button")!.getAttribute("aria-label")!;
+  const [before, after] = specString("chip.aria").split("{text}");
+  expect(label.startsWith(before) && label.endsWith(after)).toBe(true);
+  return label.slice(before.length, label.length - after.length);
+}
+
 afterEach(() => {
   cleanup();
   useNavStreamStore.getState().clear(DRONE);
 });
 
 describe("flight-state chip in the top bar", () => {
-  it("is capped at 40 % of the bar with an ellipsis and the full text in title and aria", () => {
+  it("is capped at 40 % of the bar with an ellipsis and the full text in its accessible name", () => {
     pin();
     renderWithIntl(<FlightStateChip droneId={DRONE} barWidth={1000} />);
     const wrap = screen.getByTestId("flight-state-chip");
@@ -49,10 +57,11 @@ describe("flight-state chip in the top bar", () => {
     expect(textRule).toContain("overflow: hidden");
 
     const button = wrap.querySelector("button")!;
-    const title = button.getAttribute("title")!;
-    expect(title.startsWith(text.textContent!)).toBe(true);
-    expect(title).toContain("ADOS Pilot");
-    expect(button.getAttribute("aria-label")).toBe(specString("chip.aria", { text: title }));
+    // No hover-only tooltip: the full text is the accessible name.
+    expect(button.getAttribute("title")).toBeNull();
+    const full = fullText();
+    expect(full.startsWith(text.textContent!)).toBe(true);
+    expect(full).toContain("ADOS Pilot");
   });
 
   it("says the reduced update rate in words while the nav stream is polled over the radio", () => {
@@ -61,17 +70,17 @@ describe("flight-state chip in the top bar", () => {
     renderWithIntl(<FlightStateChip droneId={DRONE} barWidth={1000} />);
     const words = specString("nav.reduced_rate");
     expect(screen.getByTestId("flight-state-chip-reduced-rate").textContent).toContain(words);
-    expect(screen.getByTestId("flight-state-chip").querySelector("button")!.getAttribute("title")).toContain(words);
+    expect(fullText()).toContain(words);
   });
 
-  it("shows the compact face only at the compact classes, keeping the full text in its title", () => {
+  it("shows the compact face only at the compact classes, keeping the full text in its accessible name", () => {
     pin();
     renderWithIntl(<FlightStateChip droneId={DRONE} barWidth={560} compact />);
     const wrap = screen.getByTestId("flight-state-chip");
     expect(wrap.getAttribute("data-face")).toBe("compact");
     expect(wrap.style.maxWidth).toBe("224px");
     expect(wrap.querySelector(".fs-chip-sub")).toBeNull();
-    expect(wrap.querySelector("button")!.getAttribute("title")).toContain("ADOS Pilot");
+    expect(fullText()).toContain("ADOS Pilot");
   });
 
   it("shows the secondary line on the full face", () => {
@@ -84,8 +93,7 @@ describe("flight-state chip in the top bar", () => {
     pin();
     renderWithIntl(<FlightStateChip droneId={DRONE} barWidth={1000} />);
     const text = screen.getByTestId("flight-state-chip-text").textContent!;
-    const title = screen.getByTestId("flight-state-chip").querySelector("button")!.getAttribute("title")!;
-    expect(screen.getByTestId("flight-state-chip-sub").textContent).toBe(title.slice(text.length));
+    expect(screen.getByTestId("flight-state-chip-sub").textContent).toBe(fullText().slice(text.length));
     const css = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
     // Every rule for exactly this selector, joined.
     const rule = (sel: string) =>

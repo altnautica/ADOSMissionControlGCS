@@ -42,10 +42,12 @@ import { demoNavStreamBlockedAt, demoTelemetryFrozen } from "./demo-link";
 import { MockProtocol } from "./mock-protocol";
 import { DEMO_DRONES } from "./drones";
 import {
+  DEMO_FC_PROFILE_OK,
   DEMO_FOLLOW_GOAL,
   DEMO_STICK_LIMITS,
   DEMO_SURFACE_OPS,
   PilotPins,
+  demoFcProfile,
   demoMovers,
   demoPilotWire,
   pinnedPositionUnverified,
@@ -463,7 +465,9 @@ export class MockPilot {
     const sequence = this.liftoff.sequence(now);
     if (sequence !== undefined) this.wire.sequence = sequence;
     const balance = this.liftoff.balanceRow();
-    this.wire.readiness = (this.wire.readiness as Json[]).map((r) => (r.id === balance.id ? balance : r));
+    this.wire.readiness = (this.wire.readiness as Json[]).map((r) =>
+      r.id === balance.id ? balance : r.id === "fc_profile" && demoFcProfile.applied ? DEMO_FC_PROFILE_OK : r,
+    );
     // A stall whose countdown ran out: the pilot skips or lands on its own.
     const due = this.stall.due(this.pins.over(this.wire), now);
     if (due) this.action(due, {});

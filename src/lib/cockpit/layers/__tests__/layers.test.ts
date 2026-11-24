@@ -28,6 +28,7 @@ import { clearFrames, frameVersion, getFrames, putFrame } from "../frame-store";
 import { effectiveLayers } from "../layer-spec";
 import { holdViewLease, setViewLeaseSender, viewDemand } from "../view-lease";
 import { LayerEngine } from "../engine";
+import { layerChips } from "../engine-types";
 import { ingestNavFrame, parseNavFrame } from "@/lib/agent/nav-stream";
 import { useNavStreamStore } from "@/stores/nav-stream-store";
 
@@ -303,19 +304,22 @@ describe("draw loop", () => {
     e.detach();
   });
 
-  it("hides a layer whose frame is older than 2 s", () => {
+  it("hides a layer whose frame is older than 2 s and reports its chip", () => {
     const { e, calls } = engine();
+    const masks: number[] = [];
+    e.setChipListener((m) => masks.push(m));
     putFrame("d4", "ar", parseArFrame(arFixture)!, 1000);
     calls.length = 0;
     e.draw(1000 + 2500);
-    // Only the "AR unavailable" chip is painted (a fill, no route strokes).
+    // No route strokes, and no chip painted on the canvas: the host draws it.
     expect(calls.filter((c) => c === "stroke").length).toBe(0);
-    expect(calls).toContain("fillText");
+    expect(calls).not.toContain("fillText");
+    expect(layerChips(masks.at(-1)!, null).map((c) => c.id)).toEqual(["ar"]);
     e.detach();
   });
 
-  it("shows the obstacles unavailable chip below the top chrome once the frame is 2 s old", () => {
-    const { canvas, texts } = recordingCanvas();
+  it("reports the obstacles chip once the frame is 2 s old, and clears it on a fresh frame", () => {
+    const { canvas } = recordingCanvas();
     const e = new LayerEngine(() => {});
     e.attach(canvas);
     e.setRunning(false);
@@ -329,12 +333,15 @@ describe("draw loop", () => {
       depthRange: "5",
       fpsCap: 0,
     });
+    const masks: number[] = [];
+    e.setChipListener((m) => masks.push(m));
     putFrame("d4", "obstacles", parseObstaclesFrame(obstaclesFixture)!, 1000);
     e.draw(1000 + 2500);
-    const chip = texts.find((t) => t.text === "Obstacles unavailable");
-    expect(chip).toBeDefined();
-    // The top bar covers the first ~70 px of the flight screen.
-    expect(chip!.y).toBeGreaterThan(100);
+    const [chip] = layerChips(masks.at(-1)!, false);
+    expect(chip).toMatchObject({ id: "obstacles", layer: "obstacles", text: "Obstacles unavailable", reason: "no_data" });
+    putFrame("d4", "obstacles", parseObstaclesFrame(obstaclesFixture)!, 4000);
+    e.draw(4000);
+    expect(masks.at(-1)).toBe(0);
     e.detach();
   });
 

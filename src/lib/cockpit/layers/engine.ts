@@ -42,12 +42,11 @@ import {
 } from "@/lib/hud/layer-layout";
 import { paintOps } from "@/lib/hud/layer-paint";
 import { LAYER_DIM_MS, LAYER_HIDE_MS } from "./layer-spec";
-import cockpitTokens from "@/lib/cockpit-spec/tokens.json";
 import {
-  specLayerChipText,
+  chipBit,
+  type ChipId,
   type FlightContext,
   type GridScratch,
-  type LayerChipText,
   type LayerOptions,
   type LayerPerf,
   type Laid,
@@ -63,7 +62,16 @@ const DEFAULT_INTERVAL_MS = 100;
  * keep-alive-only stretch from crawling over seconds. */
 const MIN_INTERVAL_MS = 16;
 const MAX_INTERVAL_MS = 250;
-const CHIP_COLOR = cockpitTokens.layer.unavailable_chip;
+/** A status chip's bit, by id. */
+const BIT: Readonly<Record<ChipId, number>> = {
+  depth: chipBit("depth"),
+  depthUnscaled: chipBit("depthUnscaled"),
+  surfaces: chipBit("surfaces"),
+  obstacles: chipBit("obstacles"),
+  ar: chipBit("ar"),
+  arApprox: chipBit("arApprox"),
+  targets: chipBit("targets"),
+};
 
 export class LayerEngine {
   readonly perf: LayerPerf = { draws: 0, skipped: 0, samples: new Float64Array(512), cursor: 0 };
@@ -80,7 +88,10 @@ export class LayerEngine {
   private targets: TargetScene | null = null;
   /** The shown detection batch's arrival, as a slot for {@link age}. */
   private readonly targetSlot = { receivedAt: 0 };
-  private readonly chipText: LayerChipText = specLayerChipText();
+  /** Status chips of the current draw, and the last mask reported. */
+  private chipMask = 0;
+  private reportedMask = 0;
+  private onChips: ((mask: number) => void) | null = null;
   private readonly readFlight: (out: FlightContext) => void;
   private readonly flight: FlightContext = { mission: null, avoid: null, showLoaded: true };
 
@@ -99,7 +110,6 @@ export class LayerEngine {
   private readonly obs = new DrawOpBuffer();
   private readonly depth = new DrawOpBuffer();
   private readonly zones = new DrawOpBuffer();
-  private readonly chips = new DrawOpBuffer();
   private readonly grid: GridScratch = { near: new Uint8Array(576), measured: new Uint8Array(72), hasMeasured: false };
   private readonly rect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private readonly arOpts: ArLayoutOptions = {
@@ -124,10 +134,16 @@ export class LayerEngine {
   private arFrameH = 0;
   /** Earliest staleness boundary seen in the current draw. */
   private nextBoundary = Infinity;
-  private chipCount = 0;
 
   constructor(readFlight: (out: FlightContext) => void) {
     this.readFlight = readFlight;
+  }
+
+  /** Report the status chip mask (see `CHIP_IDS`) whenever it changes; the
+   *  host draws the chips as buttons over the video. */
+  setChipListener(fn: ((mask: number) => void) | null): void {
+    this.onChips = fn;
+    fn?.(this.reportedMask);
   }
 
   attach(canvas: HTMLCanvasElement): void {
@@ -285,17 +301,9 @@ export class LayerEngine {
     if (g.measured !== null) decodeBase64Into(g.measured, s.measured);
   }
 
-  /** Stack one status chip centred under the top chrome (a fifth down the
-   * video rect, as the agent cockpit does); at the very top it sat behind
-   * the top bar and never showed. */
-  private chip(k: string, text: string): void {
-    const c = this.chips.push(k, "chip");
-    c.text = text;
-    c.color = CHIP_COLOR;
-    c.align = "center";
-    c.x = this.rect.x + this.rect.w / 2;
-    c.y = this.rect.y + this.rect.h * 0.2 + this.chipCount * 24;
-    this.chipCount += 1;
+  /** Raise one status chip for this draw. */
+  private chip(id: ChipId): void {
+    this.chipMask |= BIT[id];
   }
 
   /** Draw everything; true while an animation needs the next frame. */
@@ -310,8 +318,7 @@ export class LayerEngine {
 
     let animating = false;
     this.nextBoundary = Infinity;
-    this.chips.clear();
-    this.chipCount = 0;
+    this.chipMask = 0;
     const frames = getFrames(o.droneId);
     const cam = o.cameraId;
     const on = o.layers;
@@ -338,9 +345,9 @@ export class LayerEngine {
           this.laidDepth.valid = true;
         }
         paintOps(ctx, this.depth, st === 1 ? DIM_ALPHA : 1);
-        if (unscaled) this.chip("depth-unscaled", this.chipText.depthUnscaled);
+        if (unscaled) this.chip("depthUnscaled");
       } else {
-        this.chip("depth", this.chipText.depthUnavailable);
+        this.chip("depth");
       }
     }
 
@@ -357,7 +364,7 @@ export class LayerEngine {
         }
         paintOps(ctx, this.zones, st === 1 ? DIM_ALPHA : 1);
       } else {
-        this.chip("surfaces", this.chipText.surfacesUnavailable);
+        this.chip("surfaces");
       }
     }
 
@@ -379,7 +386,7 @@ export class LayerEngine {
         }
         paintOps(ctx, this.obs, st === 1 ? DIM_ALPHA : 1);
       } else if (slot) {
-        this.chip("obstacles", this.chipText.obstaclesUnavailable);
+        this.chip("obstacles");
       }
     }
 
@@ -396,7 +403,7 @@ export class LayerEngine {
         if (drawTargets(ctx, this.targets, this.style, now, this.cssW, this.cssH, opacity)) animating = true;
       } else {
         drawMarks(ctx, this.targets.marks, this.targets.markFrame, this.style, this.cssW, this.cssH);
-        if (this.targets.detector) this.chip("targets", this.chipText.targetsUnavailable);
+        if (this.targets.detector) this.chip("targets");
       }
     }
 
@@ -452,14 +459,17 @@ export class LayerEngine {
         if (tt < 1 || fade < 1) animating = true;
         paintOps(ctx, this.arOut, st === 1 ? DIM_ALPHA : 1);
         const status = arStatusChip(slot.frame, arCam, false);
-        if (status) this.chip("ar", status === "AR ≈" ? this.chipText.arApprox : this.chipText.arUnavailable);
+        if (status) this.chip(status === "AR ≈" ? "arApprox" : "ar");
       } else if (slot) {
         // Stale, or nothing for the camera on screen.
-        this.chip("ar", this.chipText.arUnavailable);
+        this.chip("ar");
       }
     }
 
-    if (this.chips.n > 0) paintOps(ctx, this.chips);
+    if (this.chipMask !== this.reportedMask) {
+      this.reportedMask = this.chipMask;
+      this.onChips?.(this.chipMask);
+    }
 
     clearTimeout(this.staleTimer);
     if (!animating && Number.isFinite(this.nextBoundary)) {

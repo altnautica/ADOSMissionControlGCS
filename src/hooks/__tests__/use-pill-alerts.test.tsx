@@ -105,6 +105,10 @@ describe("usePillAlerts", () => {
     useVideoStore.setState({ isStreaming: true, degradedReason: "ice-disconnect" });
     render(<StatusPill droneId="drone-pill" />, { wrapper });
     fireEvent.click(screen.getByTestId("status-pill"));
+    // A section of warnings starts closed.
+    for (const t of screen.getAllByTestId("alert-section-toggle")) {
+      if (t.getAttribute("aria-expanded") === "false") fireEvent.click(t);
+    }
     const labels = [...screen.getByTestId("status-pill-list").querySelectorAll(".fs-pill-src")].map((e) => e.textContent);
     expect(labels).toContain("Video");
     expect(labels.filter((t) => t?.startsWith("cockpit."))).toEqual([]);

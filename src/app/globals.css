@@ -866,6 +866,9 @@ html[data-power="low"] .ados-cockpit.flight-screen :is(.glass-panel, .glass-pill
 
 /* columns: vertically centred stacks of targets */
 .ados-cockpit .fs-col { position: absolute; z-index: 30; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+/* A stack wider than its column (the gimbal pad) grows toward the video, never
+   past the column's outer edge into the Vision side panel or the screen edge. */
+.ados-cockpit .fs-col-right { justify-content: flex-end; }
 .ados-cockpit .fs-col-stack { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 4px; pointer-events: auto;
   background: var(--fs-bg); border: var(--fs-border-px) solid var(--fs-border); border-radius: var(--fs-radius);
   -webkit-backdrop-filter: blur(var(--fs-blur)); backdrop-filter: blur(var(--fs-blur)); }

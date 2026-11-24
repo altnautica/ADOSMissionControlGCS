@@ -2,7 +2,7 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { fetchSetupStatus, rerunStep, runStepAction, setupErrorKey, startWizard } from "../client";
+import { fetchSetupStatus, rerunStep, resumeWizard, runStepAction, setupErrorKey, startWizard } from "../client";
 import { currentStep } from "../parse";
 import { SETUP_IMAGES, optionText, setupImageUrl, setupText } from "../strings";
 import { demoSetupTransport, resetDemoSetup } from "@/mock/mock-fc-setup";
@@ -46,8 +46,10 @@ describe("demo setup engine", () => {
     expect(before.uid).toBeTruthy();
     const ground = await startWizard(t, "ground");
     expect(ground.state).toBe("running");
-    expect(currentStep(ground)?.step).toBe("accel");
-    let step = currentStep(ground)!;
+    expect(currentStep(ground)?.step).toBe("frame");
+    let step = await runStepAction(t, "ground", "frame", "apply", { frame_class: 1, frame_type: 1 });
+    expect(step.state).toBe("done");
+    expect(currentStep((await fetchSetupStatus(t)).wizards[0])?.step).toBe("accel");
     for (let i = 0; i < 6; i++) step = await runStepAction(t, "ground", "accel", "next_pose");
     expect(step.state).toBe("done");
     const after = await fetchSetupStatus(t);
@@ -56,9 +58,10 @@ describe("demo setup engine", () => {
 
   it("streams parsed frames: the finished step, then the next unfinished one", async () => {
     const t = demoSetupTransport("demo-test");
+    await startWizard(t, "ground");
+    await runStepAction(t, "ground", "frame", "apply");
     const frames: unknown[] = [];
     const stop = t.openStream((f) => frames.push(f));
-    await startWizard(t, "ground");
     await runStepAction(t, "ground", "level", "start");
     stop();
     const steps = frames.filter((f): f is { kind: "step"; data: { step: string; inputs: unknown[] } } => (f as { kind: string }).kind === "step");
@@ -97,5 +100,28 @@ describe("demo setup engine", () => {
     const air = frames.flatMap((f) => (f.kind === "wizard" && f.data.id === "air" ? [f.data] : []));
     expect(air.at(-1)?.available).toBe(true);
     expect(air.at(-1)?.blockers).toEqual([]);
+  });
+
+  it("starts interrupted on the frame step, with the frame picture picker", async () => {
+    const t = demoSetupTransport("demo-test");
+    const ground = (await fetchSetupStatus(t)).wizards.find((w) => w.id === "ground")!;
+    expect(ground.state).toBe("interrupted");
+    const frame = ground.steps.find((s) => s.step === "frame")!;
+    expect(frame.state).toBe("waiting_user");
+    expect(frame.actions.map((a) => a.id)).toEqual(["apply"]);
+    const cls = frame.inputs.find((i) => i.name === "frame_class")!;
+    expect(cls.images).toEqual({ "1": "motor_order_quad_x", "2": "motor_order_hexa_x", "3": "motor_order_octa_x" });
+    for (const key of Object.values(cls.images)) expect(setupImageUrl(key)).toBeTruthy();
+    expect(frame.inputs.find((i) => i.name === "cells")?.unit).toBe("S");
+  });
+
+  it("resumes an interrupted run on its unfinished step and keeps finished records", async () => {
+    const t = demoSetupTransport("demo-test");
+    const resumed = await resumeWizard(t, "ground");
+    expect(resumed.state).toBe("running");
+    expect(currentStep(resumed)?.step).toBe("frame");
+    expect(resumed.steps.find((s) => s.step === "detect")?.result).toMatchObject({ vehicle_class: "multirotor" });
+    const again = await resumeWizard(t, "ground").catch((e: unknown) => e);
+    expect(setupErrorKey(again)).toBe("not_interrupted");
   });
 });

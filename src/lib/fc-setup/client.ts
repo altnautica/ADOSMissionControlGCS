@@ -5,6 +5,7 @@
  *
  *   GET  /api/v1/fc-setup                                    wizards, state, report
  *   POST /api/v1/fc-setup/{wizard}/start                     -> {ok, wizard}
+ *   POST /api/v1/fc-setup/{wizard}/resume                    -> {ok, wizard} (an interrupted run)
  *   POST /api/v1/fc-setup/{wizard}/steps/{step}/actions/{id} {args?} -> {ok, step}
  *   POST /api/v1/fc-setup/{wizard}/steps/{step}/run          -> {ok, step}
  *   POST /api/v1/fc-setup/{wizard}/abort                     -> {ok, wizard}
@@ -33,6 +34,7 @@ const seg = encodeURIComponent;
 export const fcSetupUrls = {
   status: () => FC_SETUP_BASE,
   start: (wizard: string) => `${FC_SETUP_BASE}/${seg(wizard)}/start`,
+  resume: (wizard: string) => `${FC_SETUP_BASE}/${seg(wizard)}/resume`,
   action: (wizard: string, step: string, action: string) =>
     `${FC_SETUP_BASE}/${seg(wizard)}/steps/${seg(step)}/actions/${seg(action)}`,
   run: (wizard: string, step: string) => `${FC_SETUP_BASE}/${seg(wizard)}/steps/${seg(step)}/run`,
@@ -139,6 +141,11 @@ async function postStep(t: SetupTransport, path: string, body: unknown): Promise
 
 export function startWizard(t: SetupTransport, wizard: string): Promise<Wizard> {
   return postWizard(t, fcSetupUrls.start(wizard));
+}
+
+/** Continue an interrupted wizard from its first unfinished step. */
+export function resumeWizard(t: SetupTransport, wizard: string): Promise<Wizard> {
+  return postWizard(t, fcSetupUrls.resume(wizard));
 }
 
 export function abortWizard(t: SetupTransport, wizard: string): Promise<Wizard> {

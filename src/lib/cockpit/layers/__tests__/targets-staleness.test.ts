@@ -9,6 +9,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { LayerEngine } from "../engine";
+import { layerChips } from "../engine-types";
 import type { TargetScene, TargetStyle } from "../draw-targets";
 import type { GlyphLayout } from "@/lib/vision/target-layout";
 import type { CockpitMark } from "@/lib/cockpit/marks";
@@ -122,6 +123,8 @@ describe("targets layer staleness", () => {
     r.calls.length = 0;
     r.alphas.length = 0;
     r.texts.length = 0;
+    // The chips are reported to the host, not painted: collect their texts.
+    e.setChipListener((mask) => r.texts.push(...layerChips(mask, null).map((c) => c.text)));
     return r;
   }
 

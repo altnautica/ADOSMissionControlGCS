@@ -20,7 +20,7 @@ import tokensJson from "@/lib/cockpit-spec/tokens.json";
 import { parsePilotState, type ArFrame } from "../cockpit-frames";
 import { chipInputs } from "../chip-inputs";
 import { flightStateChip } from "../flight-state";
-import { pillAlerts, pillSummary, type PillInputs } from "../status-pill";
+import { groupAlerts, pillAlerts, pillSummary, type PillInputs } from "../status-pill";
 import { refusalText } from "../refusal";
 import { nextTip, placeTip, type TipRect, type TipsContext } from "../tips";
 import { flyHereOffered } from "../fly-here-offer";
@@ -90,7 +90,17 @@ describe("pill cases", () => {
         lowBatteryAction: (i as { low_battery_action?: string | null }).low_battery_action,
       });
       const s = pillSummary(alerts, new Set());
-      expect({ severity: s.severity, text: s.text, count: s.count, ids: alerts.map((a) => a.id) }).toEqual(c.expected);
+      const { detail, ...face } = c.expected as typeof c.expected & { detail?: unknown };
+      expect({
+        severity: s.severity,
+        text: s.text,
+        count: s.count,
+        ids: alerts.map((a) => a.id),
+        groups: groupAlerts(alerts, new Set()).map((g) => g.group),
+      }).toEqual(face);
+      if (detail) {
+        expect(alerts.map((a) => ({ id: a.id, group: a.group, key: a.key, params: a.params, fix: a.fix }))).toEqual(detail);
+      }
     });
   }
 });

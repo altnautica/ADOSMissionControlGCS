@@ -13,15 +13,17 @@
  * @license GPL-3.0-only
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
-import { AlertTriangle, CheckCircle2, CircleDashed, Gamepad2, Loader2, MinusCircle, Navigation, ShieldCheck, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, CircleDashed, Gamepad2, Loader2, MinusCircle, Navigation, ShieldCheck, TriangleAlert, XCircle } from "lucide-react";
 
 import { HoldButton } from "@/components/cockpit/v2/HoldButton";
 import { inputArgs, liveRows, outputQuestion } from "@/lib/fc-setup/parse";
-import { formatValue, optionText, paramNote, setupImageUrl, setupLabel, setupRefusalText, setupText } from "@/lib/fc-setup/strings";
-import { HOLD_CONFIRM_MS, type ActionStyle, type InputOption, type ParamRow, type SetupAction, type SetupStep, type SetupValue, type StepInput, type StepState } from "@/lib/fc-setup/types";
+import { formatValue, hasSetupText, motorOrderMarkup, paramNote, setupImageUrl, setupLabel, setupRefusalText, setupText } from "@/lib/fc-setup/strings";
+import { HOLD_CONFIRM_MS, type ActionStyle, type ParamRow, type SetupAction, type SetupStep, type SetupValue, type StepState } from "@/lib/fc-setup/types";
 import { cn } from "@/lib/utils";
+
+import { InputField } from "./StepInputs";
 
 /** The step id whose actions render as the "Meet ADOS Pilot" screen. */
 export const ADOS_INTRO_STEP = "ados_intro";
@@ -128,63 +130,107 @@ export interface StepCardProps {
   onAction: (step: SetupStep, actionId: string, args?: Record<string, SetupValue>) => void;
 }
 
+/** A step's actions split into the one primary (the first primary-styled
+ *  action) and the rest; the outputs step's yes/no answers are both primary. */
+function splitActions(step: SetupStep): { primary: SetupAction[]; secondary: SetupAction[] } {
+  if (outputQuestion(step)) {
+    const answers = step.actions.filter((a) => a.id === "answer_yes" || a.id === "answer_no");
+    if (answers.length) return { primary: answers, secondary: step.actions.filter((a) => !answers.includes(a)) };
+  }
+  const first = step.actions.find((a) => a.style === "primary");
+  return { primary: first ? [first] : [], secondary: step.actions.filter((a) => a !== first) };
+}
+
+/** The outputs step drives motors: it carries the props-off banner. */
+function drivesMotors(step: SetupStep): boolean {
+  return step.step === "outputs" && (step.image?.startsWith("motor_order_") === true || step.actions.some((a) => a.confirm === "hold_props_off"));
+}
+
+/** The larger primary button of a guided step. */
+const PRIMARY_LARGE = "min-h-14 min-w-48 px-6 text-base";
+
+/** One setup step as a guided screen: a large picture (the pose, the frame
+ *  layout, or the motor-order diagram with the motor under test marked), a
+ *  progress ring, one sentence on what to do now, the outputs question, the
+ *  inputs, then one primary action with any others smaller beside it. What
+ *  the step writes sits in a closed "What this changes" disclosure. */
 export function StepCard({ step, busy, error, onAction }: StepCardProps) {
   const t = useTranslations("aircraftSetup");
   const [edits, setEdits] = useState<Record<string, SetupValue>>({});
   const args = step.inputs.length ? inputArgs(step.inputs, edits) : undefined;
   const fire = (id: string) => onAction(step, id, args);
+  const question = outputQuestion(step);
+  const motorSvg = useMotorDiagram(question?.kind === "motor" ? step.image : null, question?.index ?? 0);
 
   if (step.step === ADOS_INTRO_STEP) {
     return <MeetAdosPilot step={step} busy={busy} error={error} onFire={fire} />;
   }
 
   const title = setupText(step.title_key, step.args);
-  const image = setupImageUrl(step.image);
-  const question = outputQuestion(step);
+  // A step whose inputs are a picture picker shows the pictures there only.
+  const picker = step.inputs.some((i) => Object.keys(i.images).length > 0);
+  const image = motorSvg || picker ? null : setupImageUrl(step.image);
   const live = liveRows(step);
   const showRing = step.progress !== null || step.state === "running";
   const result = step.result ? Object.entries(step.result) : [];
+  const { primary, secondary } = splitActions(step);
 
   return (
-    <section className="flex flex-col gap-3 rounded-lg border border-border-default bg-bg-secondary p-4" data-testid="setup-step-card" data-step={step.step} data-state={step.state}>
+    <section className="flex flex-col gap-4 rounded-lg border border-border-default bg-bg-secondary p-4" data-testid="setup-step-card" data-step={step.step} data-state={step.state}>
       <header className="flex items-start justify-between gap-2">
-        <h2 className="text-lg font-semibold text-text-primary">{title}</h2>
+        <h2 className="text-xl font-semibold text-text-primary">{title}</h2>
         <StepStateBadge state={step.state} />
       </header>
 
-      {step.body_key && <p className="whitespace-pre-line text-sm text-text-secondary">{setupText(step.body_key, step.args)}</p>}
-
-      {(image || showRing) && (
-        <div className="flex flex-wrap items-center gap-4">
-          {image && (
-            // The spec draws these as light line art for a dark surface.
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={image} alt={title} className="h-44 w-auto max-w-full rounded-md bg-black/80 p-2" />
+      {(image || motorSvg || showRing) && (
+        <div className="flex flex-wrap items-center justify-center gap-6">
+          {motorSvg ? (
+            <div
+              role="img"
+              aria-label={title}
+              data-testid="setup-motor-diagram"
+              className="w-full max-w-md rounded-md bg-black/80 p-2 [&>svg]:h-auto [&>svg]:w-full"
+              // The spec's own motor-order picture, with one motor recoloured.
+              dangerouslySetInnerHTML={{ __html: motorSvg }}
+            />
+          ) : (
+            image && (
+              // The spec draws these as light line art for a dark surface.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={image} alt={title} className="max-h-72 w-full max-w-md rounded-md bg-black/80 object-contain p-2" />
+            )
           )}
-          {showRing && <ProgressRing value={step.progress} size={image ? 72 : 56} />}
+          {showRing && <ProgressRing value={step.progress} size={image || motorSvg ? 112 : 72} />}
         </div>
       )}
 
+      {step.body_key && <p className="whitespace-pre-line text-base text-text-primary">{setupText(step.body_key, step.args)}</p>}
+
       {question && (
-        <p className="rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-base font-medium text-text-primary" data-testid="setup-question">
+        <p className="rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-lg font-semibold text-text-primary" data-testid="setup-question">
           {setupText(question.question_key, { ...step.args, n: question.index, index: question.index, kind: question.kind })}
         </p>
       )}
 
       {step.inputs.length > 0 && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {step.inputs.map((input) => (
-            <InputField
-              key={input.name}
-              input={input}
-              value={input.name in edits ? edits[input.name] : input.value}
-              onChange={(v) => setEdits((e) => ({ ...e, [input.name]: v }))}
-            />
-          ))}
+        // Picture pickers two to a row, the number and choice fields three.
+        <div className="flex flex-col gap-4">
+          {[step.inputs.filter((i) => Object.keys(i.images).length > 0), step.inputs.filter((i) => Object.keys(i.images).length === 0)].map((group, g) =>
+            group.length > 0 ? (
+              <div key={g} className={cn("grid grid-cols-1 gap-4", g === 0 ? "lg:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-3")}>
+                {group.map((input) => (
+                  <InputField
+                    key={input.name}
+                    input={input}
+                    value={input.name in edits ? edits[input.name] : input.value}
+                    onChange={(v) => setEdits((e) => ({ ...e, [input.name]: v }))}
+                  />
+                ))}
+              </div>
+            ) : null,
+          )}
         </div>
       )}
-
-      {step.params.length > 0 && <ParamTable step={step.step} rows={step.params} />}
 
       {live.length > 0 && <ValueTable title={t("live")} group="live" rows={live} args={step.args} />}
 
@@ -207,38 +253,92 @@ export function StepCard({ step, busy, error, onAction }: StepCardProps) {
         </p>
       )}
 
+      {drivesMotors(step) && step.actions.length > 0 && (
+        <p data-testid="setup-props-off" className="flex items-center gap-2 rounded-md border border-status-error/50 bg-status-error/10 px-3 py-2 text-sm font-semibold text-status-error">
+          <TriangleAlert className="h-5 w-5 shrink-0" aria-hidden />
+          {setupText("setup.overview.props_off")}
+        </p>
+      )}
+
       {step.actions.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {step.actions.map((a) => (
+        <div className="flex flex-wrap items-center gap-3">
+          {primary.map((a) => (
+            <SetupActionButton key={a.id} action={a} step={step} disabled={busy} onFire={fire} className={PRIMARY_LARGE} />
+          ))}
+          {secondary.map((a) => (
             <SetupActionButton key={a.id} action={a} step={step} disabled={busy} onFire={fire} />
           ))}
         </div>
       )}
+
+      {step.params.length > 0 && <ParamTable step={step.step} rows={step.params} />}
     </section>
   );
 }
 
-/** The parameters a step will write, each with what it is for when the spec
- *  says (the obstacle backstop rows of the ADOS safety profile). */
-function ParamTable({ step, rows }: { step: string; rows: ParamRow[] }) {
+/** The motor-order picture's markup with motor `n` marked, read from the
+ *  bundled file; null until it loads, or when `key` has no motor `n`. */
+function useMotorDiagram(key: string | null, n: number): string | null {
+  const url = key?.startsWith("motor_order_") ? setupImageUrl(key) : null;
+  const [svg, setSvg] = useState<{ url: string; text: string } | null>(null);
+  useEffect(() => {
+    if (!url) return;
+    let live = true;
+    fetch(url)
+      .then((r) => (r.ok ? r.text() : null))
+      .then((text) => {
+        if (live && text) setSvg({ url, text });
+      })
+      .catch(() => {
+        // The plain picture stays.
+      });
+    return () => {
+      live = false;
+    };
+  }, [url]);
+  return url && svg?.url === url ? motorOrderMarkup(svg.text, n) : null;
+}
+
+/** The 1 s confirmation shown over a step that just finished, before the
+ *  guided view moves on. */
+export function StepDoneBanner({ step }: { step: SetupStep }) {
   return (
-    <div className="rounded-md border border-border-default bg-bg-tertiary/40 px-3 py-2" data-testid="setup-params">
-      <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">{setupText(`setup.${step}.params`)}</h3>
-      <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 text-sm">
-        {rows.map((r) => {
-          const note = paramNote(step, r.name);
-          return (
-            <div key={r.name} className="contents">
-              <dt className="min-w-0 text-text-secondary">
-                <span className="font-mono text-text-primary">{r.name}</span>
-                {note && <span className="block text-xs">{note}</span>}
-              </dt>
-              <dd className="text-right font-mono tabular-nums text-text-primary">{formatValue(r.value)}</dd>
-            </div>
-          );
-        })}
-      </dl>
-    </div>
+    <p role="status" className="flex items-center gap-2 rounded-lg border border-status-success/50 bg-status-success/10 px-4 py-3 text-base font-semibold text-status-success">
+      <CheckCircle2 className="h-5 w-5" aria-hidden />
+      {setupText("setup.overview.step_done", { title: setupText(step.title_key, step.args) })}
+    </p>
+  );
+}
+
+/** The parameters a step will write, closed under "What this changes", each
+ *  with what it is for when the spec says (the obstacle backstop rows). */
+function ParamTable({ step, rows }: { step: string; rows: ParamRow[] }) {
+  const heading = `setup.${step}.params`;
+  return (
+    <details className="group rounded-md border border-border-default bg-bg-tertiary/40" data-testid="setup-params">
+      <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 px-3 text-sm font-semibold text-text-primary">
+        <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" aria-hidden />
+        {setupText("setup.overview.changes")}
+        <span className="font-normal text-text-tertiary">({rows.length})</span>
+      </summary>
+      <div className="px-3 pb-3">
+        {hasSetupText(heading) && <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-text-tertiary">{setupText(heading)}</h3>}
+        <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 text-sm">
+          {rows.map((r) => {
+            const note = paramNote(step, r.name);
+            return (
+              <div key={r.name} className="contents">
+                <dt className="min-w-0 text-text-secondary">
+                  <span className="font-mono text-text-primary">{r.name}</span>
+                  {note && <span className="block text-xs">{note}</span>}
+                </dt>
+                <dd className="text-right font-mono tabular-nums text-text-primary">{formatValue(r.value)}</dd>
+              </div>
+            );
+          })}
+        </dl>
+      </div>
+    </details>
   );
 }
 
@@ -267,57 +367,6 @@ function ValueTable({
         ))}
       </dl>
     </div>
-  );
-}
-
-function InputField({ input, value, onChange }: { input: StepInput; value: SetupValue; onChange: (v: SetupValue) => void }) {
-  const label = setupText(input.label_key);
-  const control = "min-h-12 rounded-md border border-border-default bg-bg-primary px-3 text-sm text-text-primary";
-  if (input.kind === "number") {
-    return (
-      <label className="flex flex-col gap-1 text-xs text-text-secondary">
-        <span>
-          {label}
-          {input.unit ? ` (${input.unit})` : ""}
-        </span>
-        <input
-          type="number"
-          inputMode="decimal"
-          value={value === null ? "" : String(value)}
-          min={input.min ?? undefined}
-          max={input.max ?? undefined}
-          step={input.step ?? "any"}
-          onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
-          className={cn(control, "font-mono tabular-nums")}
-          data-testid={`setup-input-${input.name}`}
-        />
-      </label>
-    );
-  }
-  const options: InputOption[] =
-    input.kind === "bool"
-      ? [
-          { value: true, label_key: "setup.action.yes" },
-          { value: false, label_key: "setup.action.no" },
-        ]
-      : input.options;
-  return (
-    <fieldset className="flex flex-col gap-1 text-xs text-text-secondary">
-      <legend className="mb-1">{label}</legend>
-      <div className="flex flex-wrap gap-1.5">
-        {options.map(({ value: o, label_key }) => (
-          <button
-            key={String(o)}
-            type="button"
-            aria-pressed={o === value}
-            onClick={() => onChange(o)}
-            className={cn(control, o === value ? "border-accent-primary bg-accent-primary/15 text-accent-primary" : "hover:bg-bg-tertiary")}
-          >
-            {optionText(input.label_key, o, label_key)}
-          </button>
-        ))}
-      </div>
-    </fieldset>
   );
 }
 

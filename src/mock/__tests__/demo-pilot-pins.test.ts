@@ -190,7 +190,7 @@ describe("pinned setup abort", () => {
     vi.advanceTimersByTime(100);
     expect(pilot().setupAbort).toBe("setup.blocker.aborted_fc_failsafe");
     const out = pillAlertsFor({ surface: [], pilot: pilot(), pilotAgeMs: 0, agentReachable: true, armed: true, preflight: null, storagePct: null });
-    expect(out.find((a) => a.id === "setup_abort")).toEqual({
+    expect(out.find((a) => a.id === "setup_abort")).toMatchObject({
       id: "setup_abort",
       source: "pilot",
       severity: "warning",

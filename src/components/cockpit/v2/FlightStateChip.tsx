@@ -2,7 +2,9 @@
 
 /**
  * The flight-state chip (top bar, left): who flies the drone and how, in the
- * shared spec's words and colours. Tapping it opens the Mode sheet. Its
+ * shared spec's words and colours. Tapping it opens the Mode sheet, or while
+ * readiness items block take-off its detail sheet (the blocking items with
+ * their parameters and fixes, then the warnings link). Its
  * button (Take control, Resume) fires the matching built-in, and Abort on a
  * running launch is the launch sheet's and step strip's Abort (a refusal is
  * toasted with the pilot's reason);
@@ -10,8 +12,8 @@
  * setup wizard.
  *
  * The chip never takes more than {@link CHIP_MAX_FRAC} of the top bar: a
- * longer text ends in an ellipsis and the full text stays in its title and
- * accessible name. It is one line: a dot in the state colour, the state,
+ * longer text ends in an ellipsis and the full text stays in its accessible
+ * name and the detail sheet. It is one line: a dot in the state colour, the state,
  * then the secondary facts dimmed after " · ", inside a 1 px outline in the
  * state colour. At the compact classes it shows its compact face: the state
  * text with only the parts the sticks need (clearance, a late input, the
@@ -21,8 +23,10 @@
  * @license GPL-3.0-only
  */
 
-import { useFlightSheet } from "@/components/cockpit/flight/flight-sheet";
+import { useMemo } from "react";
 import Link from "next/link";
+
+import { useFlightSheet } from "@/components/cockpit/flight/flight-sheet";
 
 import layoutSpec from "@/lib/cockpit-spec/layout.json";
 import tokens from "@/lib/cockpit-spec/tokens.json";
@@ -37,6 +41,7 @@ import { CHIP_COMPACT_PARTS } from "@/lib/hud/flight-state";
 import { useNavStreamStore } from "@/stores/nav-stream-store";
 import { ModeSheet } from "./ModeSheet";
 import { useLaunchAbort } from "./LaunchSteps";
+import { chipBlockingAlerts, FlightStateChipDetail } from "./FlightStateChipDetail";
 import { AIRCRAFT_SETUP_HREF } from "@/components/shared/AircraftSetupBanner";
 
 interface TopBarChipZoneSpec {
@@ -91,6 +96,9 @@ export function FlightStateChip({
   const detectedLink = useGroundStationLink(droneId);
   const viaGroundStation = groundStationLink ?? detectedLink;
   const [open, setOpen] = useFlightSheet("mode");
+  const [detailOpen, setDetailOpen] = useFlightSheet("chip");
+  const readiness = pilot?.readiness;
+  const blocking = useMemo(() => chipBlockingAlerts(readiness ?? []), [readiness]);
   const button = chip.button ? CHIP_BUTTON[chip.button] : undefined;
   // Take control and Resume are refused during an FC failsafe, as Pause is:
   // the button shows why, and a press still dispatches so the refusal toasts.
@@ -121,12 +129,11 @@ export function FlightStateChip({
       >
         <button
           type="button"
-          data-sheet-trigger="mode"
-          onClick={() => setOpen((v) => !v)}
+          data-sheet-trigger={blocking.length > 0 ? "chip" : "mode"}
+          onClick={() => (blocking.length > 0 ? setDetailOpen((v) => !v) : setOpen((v) => !v))}
           aria-haspopup="dialog"
-          aria-expanded={open}
+          aria-expanded={blocking.length > 0 ? detailOpen : open}
           aria-label={specString("chip.aria", { text: fullText })}
-          title={fullText}
           className="fs-chip"
           style={
             {
@@ -201,6 +208,9 @@ export function FlightStateChip({
           groundStationLink={viaGroundStation}
           onClose={() => setOpen(false)}
         />
+      )}
+      {detailOpen && (
+        <FlightStateChipDetail droneId={droneId} fullText={fullText} blocking={blocking} onClose={() => setDetailOpen(false)} />
       )}
     </>
   );

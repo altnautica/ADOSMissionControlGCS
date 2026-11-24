@@ -28,8 +28,8 @@ describe("status pill list glyphs", () => {
             listRef={{ current: null }}
             armed={null}
             alerts={[
-              { id: "a", source: PILL_SOURCES[0], severity: "critical", text: "Crit" },
-              { id: "b", source: PILL_SOURCES[0], severity: "warning", text: "Warn" },
+              { id: "a", source: PILL_SOURCES[0], severity: "critical", text: "Crit", group: "other", key: "a|Crit" },
+              { id: "b", source: PILL_SOURCES[0], severity: "warning", text: "Warn", group: "other", key: "b|Warn" },
             ]}
           />
         </div>

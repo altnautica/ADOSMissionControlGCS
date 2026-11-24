@@ -4,25 +4,29 @@
  * @module aircraft-setup/AircraftSetupView
  * @description Settings › Aircraft setup: the drone agent's ground and air
  * setup wizards for the selected drone. The aircraft summary, a tab per
- * wizard, the step list beside the current step (the screen follows the
- * engine while a wizard runs; otherwise any step can be opened and re-run on
- * its own), the parameter-snapshot revert offer, and the setup report.
+ * wizard, and for each an overview (progress, component cards, one primary
+ * button: Start, Continue or Run again) with a guided one-step-at-a-time
+ * flow behind it that follows the engine while a wizard runs, holds a
+ * finished step for a 1 s confirmation, then moves on. Then the
+ * parameter-snapshot revert offer and the setup report.
  * @license GPL-3.0-only
  */
 
-import { useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
-import { AlertTriangle, ChevronRight, CircleStop, Cpu, FileClock, Play, RotateCcw } from "lucide-react";
+import { ArrowLeft, ChevronRight, CircleStop, Cpu, FileClock } from "lucide-react";
 
 import { HoldButton } from "@/components/cockpit/v2/HoldButton";
 import { useArmedLock } from "@/hooks/use-armed-lock";
+import { cardTarget, guidedSteps, overviewPrimary } from "@/lib/fc-setup/overview";
 import { currentStep } from "@/lib/fc-setup/parse";
-import { formatValue, setupLabel, setupRefusalText, setupText } from "@/lib/fc-setup/strings";
+import { formatValue, setupLabel, setupText } from "@/lib/fc-setup/strings";
 import { HOLD_CONFIRM_MS, type SetupReport, type SetupSnapshot, type SetupStatus, type SetupStep, type Wizard } from "@/lib/fc-setup/types";
 import type { FcSetupController } from "@/lib/fc-setup/use-fc-setup";
 import { cn } from "@/lib/utils";
 
-import { ProgressRing, StepCard, StepStateIcon } from "./StepCard";
+import { SetupOverview } from "./SetupOverview";
+import { ProgressRing, StepCard, StepDoneBanner, StepStateIcon } from "./StepCard";
 
 const BUTTON = "inline-flex min-h-12 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold disabled:opacity-40";
 
@@ -112,84 +116,205 @@ function AircraftSummary({ status }: { status: SetupStatus }) {
   );
 }
 
+/** How long a finished step stays on screen before the guided view moves on. */
+const STEP_DONE_MS = 1000;
+
+/** What the panel shows: the overview, the guided flow following the
+ *  engine, or one step opened on its own. */
+type Mode = { kind: "overview" } | { kind: "guided" } | { kind: "step"; id: string };
+
 function WizardPanel({ wizard, status, setup, droneId }: { wizard: Wizard; status: SetupStatus; setup: FcSetupController; droneId?: string }) {
-  const t = useTranslations("aircraftSetup");
   // The engine refuses the ground wizard's calibrations while armed; say so up
   // front, like the calibration panels, instead of offering a Start it refuses.
   const { isArmed, isHardBlocked, hardBlockMessage } = useArmedLock(droneId);
   const armedLocked = wizard.id === "ground" && isHardBlocked;
   // An unknown arm state reads as the calibration panels word it, not "Disarm first".
   const armedNote = isArmed ? setupText("setup.err.armed") : hardBlockMessage;
-  // The armed note above already says it; do not repeat the engine's blocker.
+  // The armed note already says it; do not repeat the engine's blocker.
   const blockers = armedLocked ? wizard.blockers.filter((b) => b !== "setup.blocker.armed") : wizard.blockers;
-  const [picked, setPicked] = useState<string | null>(null);
   const isRunning = wizard.state === "running";
-  // While the wizard runs the screen follows the engine; otherwise the operator
-  // may open any step to read it or run it on its own.
-  const step = (!isRunning && picked ? wizard.steps.find((s) => s.step === picked) : null) ?? currentStep(wizard);
+  const [mode, setMode] = useState<Mode>({ kind: "overview" });
+  const toOverview = useCallback(() => setMode({ kind: "overview" }), []);
   const busy = setup.busy !== null;
   const snapshots = status.report?.snapshots ?? [];
   const snapshot = snapshots[snapshots.length - 1] ?? null;
 
+  const onPrimary = () => {
+    const primary = overviewPrimary(wizard.state);
+    if (primary.kind === "continue") {
+      setMode({ kind: "guided" });
+      return;
+    }
+    const request = primary.kind === "resume" ? setup.resume(wizard.id) : setup.start(wizard.id);
+    void request.then((ok) => ok && setMode({ kind: "guided" }));
+  };
+
+  // A running wizard opens its current step (or another one to read);
+  // otherwise a step runs on its own once the engine takes it.
+  const openStep = (step: SetupStep) => {
+    if (isRunning) {
+      setMode(currentStep(wizard)?.step === step.step ? { kind: "guided" } : { kind: "step", id: step.step });
+      return;
+    }
+    void setup.runStep(step.wizard, step.step).then((ok) => ok && setMode({ kind: "step", id: step.step }));
+  };
+
+  if (mode.kind !== "overview") {
+    return (
+      <GuidedView
+        key={mode.kind === "step" ? mode.id : "guided"}
+        wizard={wizard}
+        setup={setup}
+        stepId={mode.kind === "step" ? mode.id : null}
+        locked={armedLocked}
+        onBack={toOverview}
+        onPick={openStep}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="max-w-2xl text-sm text-text-secondary">{setupText(`setup.wizard.${wizard.id}.body`)}</p>
-        {isRunning ? (
+      {setup.requestError && <Note tone="err">{setup.requestError}</Note>}
+      <SetupOverview
+        wizard={wizard}
+        busy={busy}
+        lockNote={armedLocked ? armedNote : null}
+        blockers={blockers}
+        onPrimary={onPrimary}
+        onCard={(card) => openStep(cardTarget(card))}
+      />
+      {isRunning && (
+        <div>
           <button type="button" disabled={busy} onClick={() => void setup.abort(wizard.id)} className={cn(BUTTON, "bg-status-error text-white")} data-testid="setup-abort">
             <CircleStop className="h-4 w-4" aria-hidden />
             {setupText("setup.action.abort")}
           </button>
+        </div>
+      )}
+      {wizard.state === "done" && snapshot && <RevertOffer snapshot={snapshot} setup={setup} />}
+    </div>
+  );
+}
+
+/** The step to show: `wanted`, except that a step which just finished stays
+ *  for {@link STEP_DONE_MS} (with `justDone`) before the view moves on. */
+function useAdvance(wizard: Wizard, wanted: SetupStep | null): { step: SetupStep | null; justDone: boolean } {
+  const wantedId = wanted?.step ?? null;
+  const [shownId, setShownId] = useState<string | null>(wantedId);
+  const shown = shownId ? (wizard.steps.find((s) => s.step === shownId) ?? null) : null;
+  const holding = shownId !== wantedId && shown?.state === "done";
+  if (!holding && shownId !== wantedId) setShownId(wantedId);
+  useEffect(() => {
+    if (!holding) return;
+    const timer = setTimeout(() => setShownId(wantedId), STEP_DONE_MS);
+    return () => clearTimeout(timer);
+  }, [holding, wantedId]);
+  return holding ? { step: shown, justDone: true } : { step: wanted, justDone: false };
+}
+
+/** One step at a time: "Step k of n" with a stepper beside it on a wide
+ *  screen, the step card, and the 1 s done confirmation before moving on. */
+function GuidedView({
+  wizard,
+  setup,
+  stepId,
+  locked,
+  onBack,
+  onPick,
+}: {
+  wizard: Wizard;
+  setup: FcSetupController;
+  /** One step opened on its own; null follows the engine's current step. */
+  stepId: string | null;
+  locked: boolean;
+  onBack: () => void;
+  onPick: (step: SetupStep) => void;
+}) {
+  const t = useTranslations("aircraftSetup");
+  const isRunning = wizard.state === "running";
+  const busy = setup.busy !== null;
+  const steps = guidedSteps(wizard);
+  const wanted = stepId === null ? currentStep(wizard) : (wizard.steps.find((s) => s.step === stepId) ?? null);
+  const { step, justDone } = useAdvance(wizard, wanted);
+
+  // Back to the overview 1 s after the shown step finishes for good: a step
+  // run on its own, or the last step of a run. Only once it was seen active,
+  // so opening a finished step to read it does not bounce.
+  const finished = step !== null && (step.state === "done" || step.state === "skipped");
+  const final = finished && !justDone && (stepId !== null || !isRunning);
+  const sawActive = useRef(false);
+  useEffect(() => {
+    if (step && !finished) sawActive.current = true;
+  }, [step, finished]);
+  useEffect(() => {
+    if (!final || !sawActive.current) return;
+    const timer = setTimeout(onBack, STEP_DONE_MS);
+    return () => clearTimeout(timer);
+  }, [final, onBack]);
+
+  const index = step ? steps.findIndex((s) => s.step === step.step) : -1;
+  // Bring the step to the top of the page, under the drone picker and tabs,
+  // so its one action fits a laptop screen.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    rootRef.current?.scrollIntoView?.({ block: "start" });
+  }, []);
+
+  return (
+    <div ref={rootRef} className="flex scroll-mt-2 flex-col gap-4" data-testid="setup-guided">
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="button" onClick={onBack} className={cn(BUTTON, "border border-border-default text-text-primary hover:bg-bg-tertiary")} data-testid="setup-back">
+          <ArrowLeft className="h-4 w-4" aria-hidden />
+          {setupText("setup.overview.back")}
+        </button>
+        {index >= 0 ? (
+          <div className="flex min-w-40 flex-1 flex-col gap-1">
+            <span className="text-sm font-semibold tabular-nums text-text-primary" data-testid="setup-step-of">
+              {setupText("setup.overview.step_of", { k: index + 1, n: steps.length })}
+            </span>
+            <div className="h-1.5 overflow-hidden rounded-full bg-bg-tertiary">
+              <div className="h-full rounded-full bg-accent-primary" style={{ width: `${((index + 1) / steps.length) * 100}%` }} />
+            </div>
+          </div>
         ) : (
-          <button
-            type="button"
-            disabled={busy || !wizard.available || armedLocked}
-            title={armedLocked ? armedNote : undefined}
-            onClick={() => void setup.start(wizard.id)}
-            className={cn(BUTTON, "bg-accent-primary text-white")}
-            data-testid="setup-start"
-          >
-            <Play className="h-4 w-4" aria-hidden />
-            {setupText(wizard.state === "not_started" ? "setup.action.start" : "setup.action.run_again")}
+          <span className="flex-1" />
+        )}
+        {isRunning && (
+          <button type="button" disabled={busy} onClick={() => void setup.abort(wizard.id)} className={cn(BUTTON, "bg-status-error text-white")} data-testid="setup-abort">
+            <CircleStop className="h-4 w-4" aria-hidden />
+            {setupText("setup.action.abort")}
           </button>
         )}
       </div>
 
-      {!isRunning && armedLocked && (
-        <p className="flex items-start gap-2 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-sm text-status-warning" data-testid="setup-armed">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-          {armedNote}
-        </p>
-      )}
-
-      {blockers.length > 0 && (
-        <ul className="flex flex-col gap-1 rounded-md border border-status-warning/40 bg-status-warning/10 px-3 py-2 text-sm text-status-warning">
-          {blockers.map((b) => (
-            <li key={b} className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-              {setupRefusalText(b)}
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {setup.requestError && !step && <Note tone="err">{setup.requestError}</Note>}
-
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(12rem,15rem)_minmax(0,1fr)]">
-        <ol aria-label={t("steps")} className="flex gap-1 overflow-x-auto lg:flex-col lg:overflow-visible">
-          {wizard.steps.map((s) => (
-            <StepRow
-              key={s.step}
-              step={s}
-              active={s.step === step?.step}
-              rerunnable={!isRunning && (s.state === "done" || s.state === "failed" || s.state === "skipped")}
-              busy={busy || armedLocked}
-              onPick={() => setPicked(s.step)}
-              onRerun={() => void setup.runStep(s.wizard, s.step)}
-            />
-          ))}
+        <ol aria-label={t("steps")} className="hidden flex-col gap-1 lg:flex">
+          {steps.map((s) => {
+            const active = s.step === step?.step;
+            return (
+              <li key={s.step}>
+                <button
+                  type="button"
+                  disabled={busy || (locked && !isRunning)}
+                  aria-current={active ? "step" : undefined}
+                  onClick={() => onPick(s)}
+                  className={cn(
+                    "flex min-h-12 w-full min-w-0 items-center gap-2 rounded-md px-3 text-left text-sm disabled:opacity-60",
+                    active ? "bg-accent-primary/15 font-semibold text-text-primary" : "text-text-secondary hover:bg-bg-tertiary",
+                  )}
+                  data-testid={`setup-step-${s.step}`}
+                >
+                  <StepStateIcon state={s.state} />
+                  <span className="min-w-0 flex-1 truncate">{setupText(s.title_key, s.args)}</span>
+                  {s.state === "running" && s.progress !== null && <ProgressRing value={s.progress} size={28} />}
+                </button>
+              </li>
+            );
+          })}
         </ol>
         <div className="flex min-w-0 flex-col gap-4">
+          {step && (justDone || final) && step.state === "done" && <StepDoneBanner step={step} />}
           {step && (
             <StepCard
               key={`${step.wizard}/${step.step}`}
@@ -199,63 +324,9 @@ function WizardPanel({ wizard, status, setup, droneId }: { wizard: Wizard; statu
               onAction={(s, id, args) => void setup.action(s, id, args)}
             />
           )}
-          {wizard.state === "done" && snapshot && <RevertOffer snapshot={snapshot} setup={setup} />}
         </div>
       </div>
     </div>
-  );
-}
-
-function StepRow({
-  step,
-  active,
-  rerunnable,
-  busy,
-  onPick,
-  onRerun,
-}: {
-  step: SetupStep;
-  active: boolean;
-  rerunnable: boolean;
-  busy: boolean;
-  onPick: () => void;
-  onRerun: () => void;
-}) {
-  const t = useTranslations("aircraftSetup");
-  const title = setupText(step.title_key, step.args);
-  return (
-    <li className="flex min-w-[11rem] shrink-0 items-stretch gap-1 lg:min-w-0">
-      <button
-        type="button"
-        aria-current={active ? "step" : undefined}
-        onClick={onPick}
-        className={cn(
-          "flex min-h-12 min-w-0 flex-1 items-center gap-2 rounded-md px-3 text-left text-sm",
-          active ? "bg-accent-primary/15 font-semibold text-text-primary" : "text-text-secondary hover:bg-bg-tertiary",
-        )}
-        data-testid={`setup-step-${step.step}`}
-      >
-        <StepStateIcon state={step.state} />
-        <span className="min-w-0 flex-1 truncate">{title}</span>
-        {step.state === "running" && step.progress !== null ? (
-          <ProgressRing value={step.progress} size={28} />
-        ) : active ? (
-          <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
-        ) : null}
-      </button>
-      {rerunnable && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onRerun}
-          aria-label={`${t("rerun")} · ${title}`}
-          title={t("rerun")}
-          className="flex min-h-12 min-w-12 items-center justify-center rounded-md text-text-secondary hover:bg-bg-tertiary disabled:opacity-40"
-        >
-          <RotateCcw className="h-4 w-4" aria-hidden />
-        </button>
-      )}
-    </li>
   );
 }
 

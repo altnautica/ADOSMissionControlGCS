@@ -30,6 +30,7 @@ import {
   revertToSnapshot,
   runStepAction,
   setupErrorKey,
+  resumeWizard,
   startWizard,
   type SetupTransport,
 } from "./client";
@@ -48,11 +49,14 @@ export interface FcSetupController {
   /** The request in flight (`<wizard>`, `<wizard>/<step>/<action>`, `revert`), or null. */
   busy: string | null;
   refresh: () => Promise<void>;
-  start: (wizard: string) => Promise<void>;
+  /** Start (or start over) a wizard; resolves true when the engine took it. */
+  start: (wizard: string) => Promise<boolean>;
+  /** Continue an interrupted wizard; resolves true when the engine took it. */
+  resume: (wizard: string) => Promise<boolean>;
   abort: (wizard: string) => Promise<void>;
   action: (step: SetupStep, actionId: string, args?: Record<string, SetupValue>) => Promise<void>;
   /** Run one step on its own (Settings › Aircraft setup, the calibration panels). */
-  runStep: (wizard: string, step: string) => Promise<void>;
+  runStep: (wizard: string, step: string) => Promise<boolean>;
   /** Restore a parameter snapshot; resolves to the restored count, or null on failure. */
   revert: (snapshot: string) => Promise<number | null>;
 }
@@ -128,11 +132,13 @@ export function useFcSetup(transport: SetupTransport | null): FcSetupController 
     }
   }, [transport]);
 
-  const applyWizard = (w: Wizard | null) => {
+  const applyWizard = (w: Wizard | null): boolean => {
     if (w) setStatus((s) => (s ? withWizard(s, w) : s));
+    return w !== null;
   };
-  const applyStep = (step: SetupStep | null) => {
+  const applyStep = (step: SetupStep | null): boolean => {
     if (step) setStatus((s) => (s ? withStep(s, step) : s));
+    return step !== null;
   };
 
   return {
@@ -143,13 +149,17 @@ export function useFcSetup(transport: SetupTransport | null): FcSetupController 
     busy,
     refresh,
     start: async (wizard) => applyWizard(await request(wizard, (t) => startWizard(t, wizard))),
-    abort: async (wizard) => applyWizard(await request(wizard, (t) => abortWizard(t, wizard))),
-    action: async (step, actionId, args) =>
+    resume: async (wizard) => applyWizard(await request(wizard, (t) => resumeWizard(t, wizard))),
+    abort: async (wizard) => {
+      applyWizard(await request(wizard, (t) => abortWizard(t, wizard)));
+    },
+    action: async (step, actionId, args) => {
       applyStep(
         await request(`${step.wizard}/${step.step}/${actionId}`, (t) =>
           runStepAction(t, step.wizard, step.step, actionId, args),
         ),
-      ),
+      );
+    },
     runStep: async (wizard, step) =>
       applyStep(await request(`${wizard}/${step}/run`, (t) => rerunStep(t, wizard, step))),
     revert: async (snapshot) => {

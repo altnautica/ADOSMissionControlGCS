@@ -27,6 +27,13 @@ afterEach(() => {
   setPilotSender(null);
 });
 
+/** Open every alert section: a section of warnings starts closed. */
+function openSections() {
+  for (const t of screen.queryAllByTestId("alert-section-toggle")) {
+    if (t.getAttribute("aria-expanded") === "false") fireEvent.click(t);
+  }
+}
+
 function sequenceWith(liftoff: Record<string, unknown>, error: string | null = null) {
   const p = parsePilotState({
     ...pilotFixture,
@@ -110,6 +117,7 @@ describe("balance check readiness row", () => {
         </div>
       </FlightGridContext.Provider>,
     );
+    openSections();
     expect(screen.getByText(readiness[0].msg)).toBeTruthy();
     expect(screen.getByText(readiness[1].msg)).toBeTruthy();
     const buttons = screen.getAllByTestId("airframe-reset");
@@ -129,6 +137,7 @@ describe("balance check readiness row", () => {
           </div>
         </FlightGridContext.Provider>,
       );
+      openSections();
       expect(screen.getByText(readiness[0].msg)).toBeTruthy();
       expect(screen.queryByTestId("airframe-reset")).toBeNull();
       cleanup();
@@ -148,6 +157,7 @@ describe("balance check readiness row", () => {
         </div>
       </FlightGridContext.Provider>,
     );
+    openSections();
     fireEvent.click(screen.getByTestId("airframe-reset"));
     expect((await screen.findByTestId("airframe-reset-refused")).textContent).toBe(refusalText("armed"));
   });

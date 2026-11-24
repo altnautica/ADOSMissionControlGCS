@@ -18,8 +18,8 @@ import { specString } from "@/lib/cockpit/spec-strings";
 import type { PilotState } from "@/lib/hud/cockpit-frames";
 import { specText } from "@/lib/hud/spec-text";
 
-const warn: PillAlert = { id: "a", severity: "warning", text: "GPS: no 3D fix", source: "nav_source" };
-const crit: PillAlert = { id: "b", severity: "critical", text: "Battery critical", source: "battery" };
+const warn: PillAlert = { id: "a", severity: "warning", text: "GPS: no 3D fix", source: "nav_source", group: "navigation", key: "a|GPS: no 3D fix" };
+const crit: PillAlert = { id: "b", severity: "critical", text: "Battery critical", source: "battery", group: "power", key: "b|Battery critical" };
 
 describe("status pill", () => {
   it("reads All systems OK with no alert and never flashes", () => {
@@ -90,10 +90,17 @@ describe("status pill: the pilot's FC status text", () => {
   });
 
   it("does not repeat the surface's own pre-arm alert or status line, and drops PreArm lines once armed", () => {
-    const own: PillAlert = { id: "alert:prearm:x", severity: "warning", text: "PreArm", source: "fc_prearm" };
+    const own: PillAlert = { id: "alert:prearm:x", severity: "warning", text: "PreArm", source: "fc_prearm", group: "flight_controller", key: "alert:prearm:x|PreArm" };
     expect(texts({ pilot: onGround, armed: false, surface: [own] })).toEqual(["Crash: Disarming", "PreArm"]);
     expect(texts({ pilot: onGround })).toEqual(["Crash: Disarming"]);
-    const line: PillAlert = { id: "alert:statusText:", severity: "critical", text: "Crash: Disarming", source: "fc_status_text" };
+    const line: PillAlert = {
+      id: "alert:statusText:",
+      severity: "critical",
+      text: "Crash: Disarming",
+      source: "fc_status_text",
+      group: "flight_controller",
+      key: "alert:statusText:|Crash: Disarming",
+    };
     expect(texts({ pilot: onGround, surface: [line] })).toEqual(["Crash: Disarming"]);
   });
 });
@@ -133,7 +140,7 @@ describe("status pill: pilot freshness, agent and controller", () => {
 
   it("says why the setup air run aborted, from a fresh pilot only", () => {
     const aborted = { ...flying, readiness: [], statustext: [], setupAbort: "setup.blocker.aborted_ground_contact" } as unknown as PilotState;
-    expect(pillAlertsFor(sources({ pilot: aborted }))).toEqual([
+    expect(pillAlertsFor(sources({ pilot: aborted }))).toMatchObject([
       { id: "setup_abort", source: "pilot", severity: "warning", text: specText("setup.blocker.aborted_ground_contact") },
     ]);
     expect(texts({ pilot: aborted, pilotAgeMs: 2500 })).toEqual([specString("alert.pilot_not_answering")]);

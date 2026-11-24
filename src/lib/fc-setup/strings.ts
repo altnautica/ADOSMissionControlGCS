@@ -21,6 +21,7 @@ import compassRotate from "@/lib/cockpit-spec/setup-images/compass_rotate.svg";
 import levelPlane from "@/lib/cockpit-spec/setup-images/level_plane.svg";
 import motorOrderHexaPlus from "@/lib/cockpit-spec/setup-images/motor_order_hexa_plus.svg";
 import motorOrderHexaX from "@/lib/cockpit-spec/setup-images/motor_order_hexa_x.svg";
+import motorOrderOctaPlus from "@/lib/cockpit-spec/setup-images/motor_order_octa_plus.svg";
 import motorOrderOctaX from "@/lib/cockpit-spec/setup-images/motor_order_octa_x.svg";
 import motorOrderQuadH from "@/lib/cockpit-spec/setup-images/motor_order_quad_h.svg";
 import motorOrderQuadPlus from "@/lib/cockpit-spec/setup-images/motor_order_quad_plus.svg";
@@ -50,6 +51,7 @@ export const SETUP_IMAGES: Readonly<Record<string, ImageImport>> = {
   level_plane: levelPlane,
   motor_order_hexa_plus: motorOrderHexaPlus,
   motor_order_hexa_x: motorOrderHexaX,
+  motor_order_octa_plus: motorOrderOctaPlus,
   motor_order_octa_x: motorOrderOctaX,
   motor_order_quad_h: motorOrderQuadH,
   motor_order_quad_plus: motorOrderQuadPlus,
@@ -128,6 +130,24 @@ export function setupImageUrl(key: string | null): string | null {
   const img = SETUP_IMAGES[key];
   if (!img) return null;
   return typeof img === "string" ? img : img.src;
+}
+
+/** Whether the spec carries text for `key`. */
+export function hasSetupText(key: string): boolean {
+  return key in STRINGS;
+}
+
+/** A motor-order picture's markup with motor `n` (the number drawn on it)
+ *  filled in the warning colour, or null when the markup has no motor `n`.
+ *  `svg` is the picture's source text (the bundled file, fetched). */
+export function motorOrderMarkup(svg: string, n: number): string | null {
+  const motor = new RegExp(`<circle cx="([\\d.]+)" cy="([\\d.]+)" r="([\\d.]+)"/>(\\s*<text x="\\1" y="\\2" )fill="#EDEDED"([^>]*>${n}</text>)`);
+  if (!motor.test(svg)) return null;
+  return svg.replace(
+    motor,
+    (_all, x: string, y: string, r: string, open: string, rest: string) =>
+      `<circle cx="${x}" cy="${y}" r="${Number(r) + 2}" style="fill:var(--color-status-warning, #f5a524);stroke:var(--color-status-warning, #f5a524)"/>${open}fill="#111111"${rest}`,
+  );
 }
 
 /** A value as the wizard shows it: numbers to at most three decimals,

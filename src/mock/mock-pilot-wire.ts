@@ -45,11 +45,15 @@ export function demoPilotWire(over: Json = {}): Json {
     plan_ned: [],
     setpoint_ned: null,
     readiness: [
-      { id: "fc_profile", ok: true, severity: "block", msg: "FC failsafe parameters match the ADOS profile" },
+      DEMO_FC_PROFILE_DIFFERS,
       { id: "position", ok: true, severity: "block", msg: "Position estimate available" },
       { id: "agl", ok: true, severity: "warn", msg: "Rangefinder AGL available" },
+      DEMO_SENSOR_PARAMS_DIFFER,
       DEMO_BALANCE_LEARNING,
     ],
+    // The FC's own warnings the pilot passes on (newest first), so the alert
+    // list shows its "Flight controller messages" section.
+    statustext: DEMO_FC_STATUSTEXT,
     link_loss_in_s: null,
     mission: null,
     input_session: null,
@@ -106,6 +110,53 @@ export const DEMO_BALANCE_LEARNING: Json = {
 
 /** The airframe balance row once a steady take-off has learned the trim. */
 export const DEMO_BALANCE_LEARNED: Json = { ...DEMO_BALANCE_LEARNING, msg: "Balance: OK." };
+
+/** The FC profile row with seven parameters off the ADOS profile, offering
+ * "Apply recommended values" (the demo setup engine's `ados_profile` step).
+ * A warning in the demo, so the demo vehicle still flies. */
+export const DEMO_FC_PROFILE_DIFFERS: Json = {
+  id: "fc_profile",
+  ok: false,
+  severity: "warn",
+  msg: "FC parameters differ from the ADOS profile",
+  params: [
+    { name: "MAV_GCS_SYSID", have: 255, want: "1" },
+    { name: "FS_GCS_ENABLE", have: 0, want: "2" },
+    { name: "FS_GCS_TIMEOUT", have: 5, want: "3" },
+    { name: "FS_THR_ENABLE", have: 0, want: "1" },
+    { name: "FS_EKF_ACTION", have: 1, want: "2" },
+    { name: "FENCE_ENABLE", have: 0, want: "1" },
+    { name: "RTL_ALT", have: null, want: "1500" },
+  ],
+  fix: { kind: "apply_profile" },
+};
+
+/** The FC profile row once the demo setup engine wrote the profile. */
+export const DEMO_FC_PROFILE_OK: Json = { id: "fc_profile", ok: true, severity: "warn", msg: "FC failsafe parameters match the ADOS profile" };
+
+/** Set by the demo setup engine when its `ados_profile` step writes the
+ * profile; the demo pilot then reports {@link DEMO_FC_PROFILE_OK}. */
+export const demoFcProfile = { applied: false };
+
+/** The flow and rangefinder rows off their rule, offering the parameter editor. */
+export const DEMO_SENSOR_PARAMS_DIFFER: Json = {
+  id: "sensor_params",
+  ok: false,
+  severity: "warn",
+  msg: "Flow and rangefinder parameters differ",
+  params: [
+    { name: "FLOW_TYPE", have: 0, want: "5 or 7" },
+    { name: "RNGFND1_TYPE", have: 0, want: "10 or 32" },
+  ],
+  fix: { kind: "parameters", names: ["FLOW_TYPE", "RNGFND1_TYPE"] },
+};
+
+/** Three FC STATUSTEXT warnings (severity 4), newest first. */
+export const DEMO_FC_STATUSTEXT: Json[] = [
+  { severity: 4, text: "Compass variance", age_ms: 0 },
+  { severity: 4, text: "GPS Glitch or Compass error", age_ms: 0 },
+  { severity: 4, text: "EKF primary changed:1", age_ms: 0 },
+];
 
 /** The stop distance from `v` m/s, as the agent's
  * `ProfileLimits::stop_distance_m`: `v²/(2·a_brk) + v·a_brk/(2·jerk) + v·0.15 s`. */

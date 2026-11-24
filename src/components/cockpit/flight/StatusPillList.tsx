@@ -5,21 +5,22 @@
  * @description The status pill's alert list: a sheet at the flight screen's
  * root, below the top bar beside the left column like every sheet, so the
  * top bar's box never clips it and every row stays readable and tappable.
- * Each row shows the alert text, its severity icon and the source it comes
- * from.
+ * It holds the alert centre ({@link AlertCentre}): sections per alert group,
+ * parameter tables, fix actions and Hide/Collapse.
  *
  * @license GPL-3.0-only
  */
 
-import { useState, type RefObject } from "react";
+import { useMemo, useState, type RefObject } from "react";
 
 import { specString } from "@/lib/cockpit/spec-strings";
-import tokens from "@/lib/cockpit-spec/tokens.json";
 import { refusalText } from "@/lib/hud/refusal";
-import type { PillAlert, PillSource } from "@/lib/hud/status-pill";
+import type { PillAlert } from "@/lib/hud/status-pill";
 import { requestPilotAction } from "@/lib/input/pilot-stream";
+import { AlertCentre } from "./AlertCentre";
 import { useFlightGrid } from "./flight-context";
 import { FlightSheetPortal, sheetPlacement } from "./flight-sheet";
+import { useAlertActions } from "./use-alert-actions";
 
 /** The pill id of the pilot's `airframe_balance` readiness row. */
 const AIRFRAME_BALANCE_ID = "pilot:airframe_balance";
@@ -41,7 +42,7 @@ function AirframeResetButton() {
     <>
       <button
         type="button"
-        className="fs-hit min-h-[40px] rounded bg-white/10 px-3 text-xs font-semibold"
+        className="fs-hit min-h-[48px] rounded bg-white/10 px-3 text-xs font-semibold"
         data-testid="airframe-reset"
         disabled={busy}
         onClick={() => void reset()}
@@ -59,72 +60,57 @@ function AirframeResetButton() {
 
 export const PILL_COLOR = { ok: "var(--fs-ok)", warning: "var(--fs-warn)", critical: "var(--fs-crit)" } as const;
 
-/** Each list item's glyph from the spec (`chrome.severity_icon`), drawn in its
- *  severity colour; an item that is neither warning nor critical is info. */
-export const SEVERITY_GLYPH = {
-  ok: tokens.chrome.severity_icon.info,
-  warning: tokens.chrome.severity_icon.warning,
-  critical: tokens.chrome.severity_icon.critical,
-} as const;
-
-/** Spec key naming each pill source in the list. */
-export function pillSourceLabel(source: PillSource): string {
-  return specString(`cockpit.status.source.${source}`);
-}
+const NO_SNOOZE: ReadonlySet<string> = new Set();
 
 export function StatusPillList({
   alerts,
   listRef,
   armed,
+  droneId = "",
+  snoozed = NO_SNOOZE,
+  onSnooze = () => {},
+  onLeave,
 }: {
   alerts: readonly PillAlert[];
   listRef: RefObject<HTMLDivElement | null>;
   /** The drone's arm state as the pill reads it; null when unknown. */
   armed: boolean | null;
+  /** The drone the fixes act on. */
+  droneId?: string;
+  /** The snoozed alert keys and how to change them. */
+  snoozed?: ReadonlySet<string>;
+  onSnooze?: (key: string, on: boolean) => void;
+  /** Close the list as a fix navigates away. */
+  onLeave?: () => void;
 }) {
   const grid = useFlightGrid();
+  const base = useAlertActions(droneId, onLeave);
+  const actions = useMemo(
+    () => ({
+      ...base,
+      extra: (a: PillAlert) => (a.id === AIRFRAME_BALANCE_ID && armed === false ? <AirframeResetButton /> : null),
+    }),
+    [base, armed],
+  );
   return (
     <FlightSheetPortal>
       <div
         ref={listRef}
         role="dialog"
         aria-labelledby="status-pill-list-title"
-        className="fs-sheet fs-pill-list"
+        // Not `fs-pill-list`: its row grid is the old one-line list's.
+        className="fs-sheet p-1.5"
         data-testid="status-pill-list"
-        style={{ position: "absolute", ...sheetPlacement(grid, "left") }}
+        style={{
+          position: "absolute",
+          ...sheetPlacement(grid, "left"),
+          width: "min(420px, calc(100vw - 16px))",
+          maxHeight: "70vh",
+          overflowY: "auto",
+          overscrollBehavior: "contain",
+        }}
       >
-        <p id="status-pill-list-title" className="fs-menu-h" data-testid="status-pill-list-title">
-          {specString("cockpit.alerts.title")}
-        </p>
-        {alerts.length === 0 ? (
-          <p className="fs-sheet-empty">{specString("cockpit.status.ok")}</p>
-        ) : (
-          <ul>
-            {alerts.map((a) => {
-              const glyph = SEVERITY_GLYPH[a.severity];
-              return (
-                <li key={a.id} data-severity={a.severity}>
-                  <span
-                    className="fs-ico fs-pill-glyph"
-                    data-testid="status-pill-glyph"
-                    style={{ color: PILL_COLOR[a.severity] }}
-                    aria-hidden="true"
-                  >
-                    {glyph}
-                  </span>
-                  <span
-                    className="fs-pill-item"
-                    style={a.severity === "critical" ? { color: "var(--fs-text-crit)" } : undefined}
-                  >
-                    {a.text}
-                  </span>
-                  <span className="fs-pill-src">{pillSourceLabel(a.source)}</span>
-                  {a.id === AIRFRAME_BALANCE_ID && armed === false && <AirframeResetButton />}
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        <AlertCentre alerts={alerts} snoozed={snoozed} onSnooze={onSnooze} actions={actions} titleId="status-pill-list-title" />
       </div>
     </FlightSheetPortal>
   );
