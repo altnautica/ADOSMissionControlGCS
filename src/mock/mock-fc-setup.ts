@@ -26,23 +26,28 @@ const MOTORS = 4;
 const DEMO_RC_PRESENT = true;
 /** The ArduCopter profile rows the `ados_profile` step will write
  *  (`args.params`), the obstacle backstop at the default 1.5 m pilot margin:
- *  the FC's proximity stop at its 1 m minimum, inside that margin. */
+ *  the FC's proximity stop at its 1 m minimum, inside that margin. `have` is
+ *  the demo FC's current value (null: not read), so the review shows what
+ *  changes and what is already set. */
 const DEMO_PROFILE_PARAMS: Json[] = [
-  { name: "MAV_GCS_SYSID", value: 1 },
-  { name: "FS_GCS_ENABLE", value: 4 },
-  { name: "FS_GCS_TIMEOUT", value: 3 },
-  { name: "FS_THR_ENABLE", value: 5 },
-  { name: "GUID_TIMEOUT", value: 1 },
-  { name: "RC_OVERRIDE_TIME", value: 1 },
-  { name: "BATT_FS_LOW_ACT", value: 2 },
-  { name: "BATT_FS_CRT_ACT", value: 1 },
-  { name: "OA_TYPE", value: 0 },
-  { name: "AVOID_ENABLE", value: 2 },
-  { name: "AVOID_MARGIN", value: 1 },
-  { name: "AVOID_BEHAVE", value: 1 },
-  { name: "PRX1_TYPE", value: 2 },
-  { name: "SRTL_POINTS", value: 500 },
+  { name: "MAV_GCS_SYSID", value: 1, have: 255 },
+  { name: "FS_GCS_ENABLE", value: 4, have: 0 },
+  { name: "FS_GCS_TIMEOUT", value: 3, have: 5 },
+  { name: "FS_THR_ENABLE", value: 5, have: 0 },
+  { name: "GUID_TIMEOUT", value: 1, have: 1 },
+  { name: "RC_OVERRIDE_TIME", value: 1, have: 1 },
+  { name: "BATT_FS_LOW_ACT", value: 2, have: 2 },
+  { name: "BATT_FS_CRT_ACT", value: 1, have: 1 },
+  { name: "OA_TYPE", value: 0, have: 0 },
+  { name: "AVOID_ENABLE", value: 2, have: 0 },
+  { name: "AVOID_MARGIN", value: 1, have: null },
+  { name: "AVOID_BEHAVE", value: 1, have: 1 },
+  { name: "PRX1_TYPE", value: 2, have: 0 },
+  { name: "SRTL_POINTS", value: 500, have: 300 },
 ];
+
+/** A proximity sensor type change takes an FC restart, as on the agent. */
+const DEMO_PROFILE_REBOOTS = true;
 
 interface DemoState {
   deviceId: string;
@@ -53,6 +58,9 @@ interface DemoState {
   /** Stream subscribers; frames are wire-shaped, as the agent sends them. */
   listeners: Set<(frame: Json) => void>;
   timer: ReturnType<typeof setInterval> | null;
+  /** One step run on its own while its wizard is not running, as the agent
+   *  reports it in the status's top-level `running`. */
+  single: { wizard: "ground" | "air"; step: string } | null;
 }
 
 const engines = new Map<string, DemoState>();
@@ -98,6 +106,7 @@ function create(deviceId: string): DemoState {
     snapshots: [],
     listeners: new Set(),
     timer: null,
+    single: null,
   };
 }
 
@@ -140,7 +149,7 @@ function statusOf(e: DemoState): Json {
     firmware: "ArduCopter",
     firmware_version: "4.5.7",
     vehicle_class: "multirotor",
-    running: running && current ? { wizard: running, step: current } : null,
+    running: running && current ? { wizard: running, step: current } : e.single,
     wizards: [wizardOf(e, "ground"), wizardOf(e, "air")],
     report: { date: e.wizards.ground.completed_at, firmware: "ArduCopter", firmware_version: "4.5.7", vehicle_class: "multirotor", steps: results, snapshots: e.snapshots },
   };
@@ -213,7 +222,11 @@ function enter(e: DemoState, wizard: "ground" | "air", step: string): void {
       };
       break;
     case "ados_profile":
-      Object.assign(s, { state: "waiting_user", args: { params: DEMO_PROFILE_PARAMS }, actions: [action("apply")] });
+      Object.assign(s, {
+        state: "waiting_user",
+        args: { params: DEMO_PROFILE_PARAMS, reboots: DEMO_PROFILE_REBOOTS },
+        actions: [action("apply")],
+      });
       break;
     case "ados_intro":
       // The engine leads with the no-RC choice when it saw no RC receiver.
@@ -252,6 +265,7 @@ function finish(e: DemoState, wizard: "ground" | "air", step: string, result: Js
   Object.assign(s, { state: "done", progress: null, actions: [], live: {}, result });
   delete (s as Json).__inputs;
   emit(e, wire(s));
+  if (e.single?.wizard === wizard && e.single.step === step) e.single = null;
   if (e.wizards[wizard].state !== "running") return;
   const next = e.order[wizard].find((id) => {
     const st = e.steps[`${wizard}/${id}`].state;
@@ -412,6 +426,7 @@ export function demoSetupTransport(deviceId: string): SetupTransport {
       }
       if (parts[1] === "start") {
         e.wizards[wizard] = { state: "running", completed_at: null };
+        e.single = null;
         const first = e.order[wizard].find((id) => e.steps[`${wizard}/${id}`].state !== "done");
         if (first) enter(e, wizard, first);
         return { ok: true, wizard: wizardOf(e, wizard) };
@@ -426,7 +441,15 @@ export function demoSetupTransport(deviceId: string): SetupTransport {
         return { ok: true, wizard: wizardOf(e, wizard) };
       }
       if (parts[1] === "abort") {
-        e.wizards[wizard] = { state: "aborted", completed_at: null };
+        // Like the agent: the step in progress stops and reads Cancelled.
+        for (const id of e.order[wizard]) {
+          const s = e.steps[`${wizard}/${id}`];
+          if (s.state === "running" || s.state === "waiting_user") {
+            Object.assign(s, { state: "failed", progress: null, actions: [action("retry")], blockers: ["setup.blocker.cancelled"] });
+          }
+        }
+        if (e.single?.wizard === wizard) e.single = null;
+        if (e.wizards[wizard].state === "running") e.wizards[wizard] = { state: "aborted", completed_at: null };
         return { ok: true, wizard: wizardOf(e, wizard) };
       }
       const step = parts[2];
@@ -438,6 +461,7 @@ export function demoSetupTransport(deviceId: string): SetupTransport {
           throw new SetupRequestError(409, "setup.blocker.ground_required", "ground wizard first");
         }
         enter(e, wizard, step);
+        if (e.wizards[wizard].state !== "running") e.single = { wizard, step };
         return { ok: true, step: wire(e.steps[`${wizard}/${step}`]) };
       }
       if (parts[3] === "actions" && parts[4]) {

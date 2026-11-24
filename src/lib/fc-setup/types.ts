@@ -63,10 +63,12 @@ export interface StepInput {
 }
 
 /** A flight-controller parameter a step will write (`step.args.params`, the
- *  ADOS safety profile's rows), with the value it writes. */
+ *  ADOS safety profile's rows), with the value it writes and the value the FC
+ *  holds now (`have`; null when the engine could not read it). */
 export interface ParamRow {
   name: string;
   value: SetupValue;
+  have?: number | null;
 }
 
 /** One wizard step. `args` holds interpolation values for the text keys;

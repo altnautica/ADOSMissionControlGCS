@@ -59,10 +59,13 @@ describe("setup step parser ", () => {
     expect(setupNeeded(null)).toBe(false);
   });
 
-  it("lifts the parameters a step writes out of its args and words each backstop row", () => {
-    const params = [{ name: "AVOID_ENABLE", value: 2 }, { name: "AVOID_MARGIN", value: 1.3 }, { name: "bad" }, { value: 1 }];
+  it("lifts the parameters a step writes out of its args, with the FC's current value, and words each backstop row", () => {
+    const params = [{ name: "AVOID_ENABLE", value: 2, have: 0 }, { name: "AVOID_MARGIN", value: 1.3 }, { name: "bad" }, { value: 1 }];
     const s = parseStep({ ...accel, step: "ados_profile", args: { params } })!;
-    expect(s.params).toEqual([{ name: "AVOID_ENABLE", value: 2 }, { name: "AVOID_MARGIN", value: 1.3 }]);
+    expect(s.params).toEqual([
+      { name: "AVOID_ENABLE", value: 2, have: 0 },
+      { name: "AVOID_MARGIN", value: 1.3, have: null },
+    ]);
     expect(s.args.params).toBeUndefined();
     expect(parseStep(accel)!.params).toEqual([]);
     for (const name of ["AVOID_ENABLE", "AVOID_MARGIN", "AVOID_BEHAVE", "PRX1_TYPE", "OA_TYPE"]) expect(paramNote("ados_profile", name)).toBeTruthy();

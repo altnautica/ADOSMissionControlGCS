@@ -8,12 +8,30 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { pillAlerts, type PillAlert } from "@/lib/hud/status-pill";
 import type { ReadinessItem } from "@/lib/hud/cockpit-frames";
+import { SetupRequestError, type SetupTransport } from "@/lib/fc-setup/client";
 import { demoSetupTransport, resetDemoSetup } from "@/mock/mock-fc-setup";
 import { AlertCentre, type AlertActions } from "../AlertCentre";
+
+/** The demo setup engine, recording every POST path; `post` may answer first. */
+function spyTransport(post?: (path: string) => unknown): { transport: SetupTransport; posts: string[] } {
+  const demo = demoSetupTransport("alert-centre-spy");
+  const posts: string[] = [];
+  return {
+    posts,
+    transport: {
+      ...demo,
+      post: async (path, body) => {
+        posts.push(path);
+        const own = post?.(path);
+        return own === undefined ? demo.post(path, body) : own;
+      },
+    },
+  };
+}
 
 afterEach(() => {
   cleanup();
@@ -85,12 +103,74 @@ describe("alert centre", () => {
     expect(rows()[6].textContent).toContain("not reported");
   });
 
-  it("reads the recommended values, then offers them behind a hold", async () => {
+  it("reads the recommended values, then offers the changes behind a hold", async () => {
     renderCentre(alerts());
     fireEvent.click(screen.getByTestId("alert-fix-apply"));
     const review = await screen.findByTestId("alert-apply-review");
-    expect(within(review).getByTestId("alert-apply-writes").children.length).toBeGreaterThan(0);
+    // Only the rows that change, as current → new; the rest fold away.
+    const changes = within(review).getAllByTestId("alert-apply-change");
+    expect(changes).toHaveLength(8);
+    expect(changes[0].textContent).toContain("MAV_GCS_SYSID");
+    expect(changes[0].textContent).toContain("255");
+    expect(within(review).queryAllByTestId("alert-apply-same")).toHaveLength(0);
+    fireEvent.click(within(review).getByTestId("alert-apply-same-toggle"));
+    expect(within(review).getAllByTestId("alert-apply-same")).toHaveLength(6);
+    expect(within(review).getByTestId("alert-apply-reboots").textContent).toBe("The flight controller will restart");
     expect(within(review).getByTestId("alert-apply-hold").textContent).toBe("Apply recommended values");
+    // The row's own table would repeat the review: it is hidden meanwhile.
+    expect(screen.queryByTestId("alert-params")).toBeNull();
+  });
+
+  it("aborts the ground wizard on Cancel and when the review unmounts", async () => {
+    const spy = spyTransport();
+    renderCentre(alerts(), actions({ transport: spy.transport }));
+    fireEvent.click(screen.getByTestId("alert-fix-apply"));
+    fireEvent.click(await screen.findByTestId("alert-apply-cancel"));
+    expect(spy.posts.filter((p) => p.endsWith("/ground/abort"))).toHaveLength(1);
+    expect(screen.getByTestId("alert-params")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("alert-fix-apply"));
+    await screen.findByTestId("alert-apply-review");
+    cleanup();
+    expect(spy.posts.filter((p) => p.endsWith("/ground/abort"))).toHaveLength(2);
+  });
+
+  it("picks up a review the engine already holds open", async () => {
+    const demo = demoSetupTransport("alert-centre-held");
+    // An earlier review left the step waiting for the operator.
+    await demo.post("/api/v1/fc-setup/ground/steps/ados_profile/run", {});
+    const transport: SetupTransport = {
+      ...demo,
+      get: async (path, signal) => ({ ...(await demo.get(path, signal) as object), running: { wizard: "ground", step: "ados_profile" } }),
+      post: async (path, body) => {
+        if (path.endsWith("/run")) throw new SetupRequestError(409, "wizard_running", "a wizard is running");
+        return demo.post(path, body);
+      },
+    };
+    renderCentre(alerts(), actions({ transport }));
+    fireEvent.click(screen.getByTestId("alert-fix-apply"));
+    expect(await screen.findByTestId("alert-apply-review")).toBeTruthy();
+  });
+
+  it("words a refusal, never as its raw key", async () => {
+    const spy = spyTransport((path) => {
+      if (path.endsWith("/run")) throw new SetupRequestError(409, "some_new_code", "refused");
+      return undefined;
+    });
+    renderCentre(alerts(), actions({ transport: spy.transport }));
+    fireEvent.click(screen.getByTestId("alert-fix-apply"));
+    const error = await screen.findByTestId("alert-apply-error");
+    await waitFor(() => expect(error.textContent).toContain("The values were not written."));
+    expect(error.textContent).not.toContain("some_new_code");
+  });
+
+  it("titles a row with parameters by the words before the colon", () => {
+    renderCentre(alerts([{ ...fcProfile, msg: "FC parameters differ from the ADOS profile: MAV_GCS_SYSID 255 (want 1)" }]));
+    const row = within(screen.getAllByTestId("alert-section")[0]).getByTestId("alert-item");
+    expect(within(row).getByTestId("alert-item-text").textContent).toBe("FC parameters differ from the ADOS profile");
+    expect(within(row).getByTestId("alert-item-fulltext").textContent).toBe(
+      "FC parameters differ from the ADOS profile: MAV_GCS_SYSID 255 (want 1)",
+    );
   });
 
   it("names where to fix setup when the drone has no setup engine", () => {

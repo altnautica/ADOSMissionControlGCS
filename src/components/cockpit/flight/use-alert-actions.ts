@@ -5,7 +5,8 @@
  * @description Where an alert's fix goes on Mission Control, and the alert
  * snooze set kept on this device:
  *
- * - Aircraft setup: Settings › Aircraft setup for the drone (`?drone=`); only
+ * - Aircraft setup: Settings › Aircraft setup for the drone (`?drone=`, at
+ *   `&step=` when the fix names one); only
  *   when the drone's setup engine is reachable (a ground station or a drone
  *   without an agent gets the hint instead).
  * - A settings section: the drone's Agent tab at the matching page.
@@ -50,8 +51,13 @@ export function useAlertActions(droneId: string, onLeave?: () => void): AlertAct
     });
     return {
       transport,
-      // The setup page opens the drone's wizards; it has no per-step entry.
-      setup: transport ? () => ({ href: `${AIRCRAFT_SETUP_HREF}?drone=${encodeURIComponent(droneId)}`, onFollow: onLeave }) : null,
+      // The setup page opens the drone's wizards at `step` when given.
+      setup: transport
+        ? (step) => ({
+            href: `${AIRCRAFT_SETUP_HREF}?drone=${encodeURIComponent(droneId)}${step ? `&step=${encodeURIComponent(step)}` : ""}`,
+            onFollow: onLeave,
+          })
+        : null,
       settings: (section) =>
         toDrone("agent", () => {
           const panel = AGENT_PANEL[section];

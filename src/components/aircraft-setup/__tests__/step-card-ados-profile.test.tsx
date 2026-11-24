@@ -36,6 +36,12 @@ describe("StepCard: ADOS safety profile", () => {
     }
     const margin = Array.from(table.querySelectorAll("dt")).find((dt) => dt.textContent?.startsWith("AVOID_MARGIN"));
     expect(margin?.nextElementSibling?.textContent).toBe("1");
+    // Current → new, and a value the FC already holds reads dim.
+    const sysid = Array.from(table.querySelectorAll("dt")).find((dt) => dt.textContent?.startsWith("MAV_GCS_SYSID"));
+    expect(sysid?.nextElementSibling?.textContent).toBe("255 → 1");
+    const guid = Array.from(table.querySelectorAll("dt")).find((dt) => dt.textContent?.startsWith("GUID_TIMEOUT"));
+    expect(guid?.parentElement?.getAttribute("data-same")).toBe("true");
+    expect(guid?.nextElementSibling?.textContent).toBe("1");
   });
 
   it("shows no table for a step that writes nothing", async () => {

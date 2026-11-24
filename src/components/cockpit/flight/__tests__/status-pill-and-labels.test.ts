@@ -30,9 +30,9 @@ describe("status pill", () => {
     expect(pillSummary([warn], new Set()).text).toBe("GPS: no 3D fix");
   });
 
-  it("counts several alerts and takes the worst severity", () => {
+  it("counts several alerts, blocking first, and takes the worst severity", () => {
     const s = pillSummary([crit, warn], new Set());
-    expect(s.text).toBe("2 warnings");
+    expect(s.text).toBe("1 blocking · 1 warning");
     expect(s.severity).toBe("critical");
   });
 

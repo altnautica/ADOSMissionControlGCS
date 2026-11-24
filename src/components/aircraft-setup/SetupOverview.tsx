@@ -25,7 +25,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { cardSummary, overviewPrimary, wizardCards, wizardProgress, type CardState, type SetupCard } from "@/lib/fc-setup/overview";
+import { cardSummary, isCancelled, overviewPrimary, wizardCards, wizardProgress, type CardState, type SetupCard } from "@/lib/fc-setup/overview";
 import { setupRefusalText, setupText } from "@/lib/fc-setup/strings";
 import type { Wizard } from "@/lib/fc-setup/types";
 import { cn } from "@/lib/utils";
@@ -48,6 +48,7 @@ const CARD_BORDER: Record<CardState, string> = {
   not_set: "border-border-default",
   optional: "border-border-default",
   not_needed: "border-border-default opacity-80",
+  after_setup: "border-border-default opacity-80",
 };
 
 const BADGE_TONE: Record<CardState, string> = {
@@ -57,26 +58,34 @@ const BADGE_TONE: Record<CardState, string> = {
   not_set: "bg-bg-tertiary text-text-secondary",
   optional: "bg-bg-tertiary text-text-secondary",
   not_needed: "bg-bg-tertiary text-text-secondary",
+  after_setup: "bg-bg-tertiary text-text-secondary",
 };
 
 export interface SetupOverviewProps {
   wizard: Wizard;
   busy: boolean;
+  /** A run of this wizard is in progress (a whole run, or one step run on its
+   *  own): the primary reads Continue and opens it, whatever blockers or
+   *  lock the wizard reports. */
+  running: boolean;
+  /** Steps the flight controller's readiness flags (`readinessFlags`). */
+  flags: ReadonlyMap<string, string>;
   /** Why the primary button is held (an armed or unknown arm state), else null. */
   lockNote: string | null;
   /** The wizard's blockers to show (the lock note already says "armed"). */
   blockers: string[];
-  /** The primary button: start, resume or open the running wizard. */
+  /** The primary button: start, resume, open the run in progress, or ask to
+   *  run again. */
   onPrimary: () => void;
   onCard: (card: SetupCard) => void;
 }
 
-export function SetupOverview({ wizard, busy, lockNote, blockers, onPrimary, onCard }: SetupOverviewProps) {
-  const cards = wizardCards(wizard);
+export function SetupOverview({ wizard, busy, running, flags, lockNote, blockers, onPrimary, onCard }: SetupOverviewProps) {
+  const cards = wizardCards(wizard, flags);
   const { done, total } = wizardProgress(wizard);
-  const primary = overviewPrimary(wizard.state);
+  const primary = overviewPrimary(wizard.state, running);
   const viewOnly = primary.kind === "continue";
-  // Blockers stop a start, never the view of a run already going.
+  // Blockers stop a start, never the way into a run already going.
   const blocked = blockers.length > 0 && !viewOnly;
   const locked = lockNote !== null && !viewOnly;
   const pct = total ? Math.round((done / total) * 100) : 0;
@@ -95,7 +104,7 @@ export function SetupOverview({ wizard, busy, lockNote, blockers, onPrimary, onC
         </div>
       </div>
 
-      {wizard.state === "interrupted" && (
+      {wizard.state === "interrupted" && !running && (
         <p className="flex items-start gap-2 rounded-md border border-accent-primary/40 bg-accent-primary/10 px-4 py-3 text-sm text-text-primary" data-testid="setup-interrupted">
           <Info className="mt-0.5 h-4 w-4 shrink-0 text-accent-primary" aria-hidden />
           {setupText("setup.overview.interrupted")}
@@ -157,6 +166,7 @@ function ComponentCard({ card, disabled, onOpen }: { card: SetupCard; disabled: 
       disabled={disabled}
       onClick={onOpen}
       data-testid={`setup-card-${card.id}`}
+      title={card.flag ?? undefined}
       data-state={card.state}
       className={cn("flex h-full min-h-28 w-full flex-col gap-2 rounded-lg border bg-bg-secondary p-3 text-left hover:bg-bg-tertiary disabled:opacity-60", CARD_BORDER[card.state])}
     >
@@ -166,16 +176,25 @@ function ComponentCard({ card, disabled, onOpen }: { card: SetupCard; disabled: 
         </span>
         <span className="min-w-0 flex-1 truncate text-base font-semibold text-text-primary">{setupText(card.title_key)}</span>
       </span>
-      {card.steps.length > 1 && (
+      {card.steps.length > 1 && !card.flag && (
         <span className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-text-secondary">
           {card.steps.map((s) => (
-            <span key={s.step} className={s.state === "done" ? "text-status-success" : s.state === "failed" ? "text-status-error" : undefined}>
+            <span
+              key={s.step}
+              className={s.state === "done" ? "text-status-success" : s.state === "failed" && !isCancelled(s) ? "text-status-error" : undefined}
+            >
               {setupText(s.title_key, s.args)}
             </span>
           ))}
         </span>
       )}
-      {summary && <span className="truncate text-sm text-text-secondary">{summary}</span>}
+      {summary && !card.flag && <span className="truncate text-sm text-text-secondary">{summary}</span>}
+      {/* What the flight controller says is wrong, on a line of its own. */}
+      {card.flag && (
+        <span className="line-clamp-2 break-words font-mono text-xs text-status-error" data-testid="setup-card-flag">
+          {card.flag}
+        </span>
+      )}
       <span className={cn("mt-auto self-start rounded-full px-2.5 py-0.5 text-xs font-semibold", BADGE_TONE[card.state])}>{setupText(`setup.card.state.${card.state}`)}</span>
     </button>
   );

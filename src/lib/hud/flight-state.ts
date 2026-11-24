@@ -383,9 +383,19 @@ export function flightStateChip(f: ChipFacts): ChipView {
   };
 }
 
-/** The first blocking readiness message, or null. */
+/** A readiness or alert message's one-line title. With parameter rows
+ *  behind it the rows carry the detail, so the title is the plain words
+ *  before the first colon ("FC parameters differ"). */
+export function shortTitle(text: string, params: readonly unknown[] | null | undefined): string {
+  if (!params || params.length === 0) return text;
+  const at = text.indexOf(": ");
+  return at > 0 ? text.slice(0, at) : text;
+}
+
+/** The first blocking readiness item's title, or null. */
 export function firstBlock(p: PilotState | null): string | null {
-  return p?.readiness.find((r) => !r.ok && r.severity === "block")?.msg ?? null;
+  const r = p?.readiness.find((r) => !r.ok && r.severity === "block");
+  return r ? shortTitle(r.msg, r.params) : null;
 }
 
 /** Facts for the chip rules from one pilot state. Exported for tests. */

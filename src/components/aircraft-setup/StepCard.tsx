@@ -18,9 +18,10 @@ import { useTranslations } from "next-intl";
 import { AlertTriangle, CheckCircle2, ChevronRight, CircleDashed, Gamepad2, Loader2, MinusCircle, Navigation, ShieldCheck, TriangleAlert, XCircle } from "lucide-react";
 
 import { HoldButton } from "@/components/cockpit/v2/HoldButton";
+import { isCancelled, resultRows } from "@/lib/fc-setup/overview";
 import { inputArgs, liveRows, outputQuestion } from "@/lib/fc-setup/parse";
 import { formatValue, hasSetupText, motorOrderMarkup, paramNote, setupImageUrl, setupLabel, setupRefusalText, setupText } from "@/lib/fc-setup/strings";
-import { HOLD_CONFIRM_MS, type ActionStyle, type ParamRow, type SetupAction, type SetupStep, type SetupValue, type StepState } from "@/lib/fc-setup/types";
+import { HOLD_CONFIRM_MS, type ActionStyle, type ParamRow, type SetupAction, type SetupStep, type SetupValue, type StepInput } from "@/lib/fc-setup/types";
 import { cn } from "@/lib/utils";
 
 import { InputField } from "./StepInputs";
@@ -39,9 +40,12 @@ const STYLE_CLASS: Record<ActionStyle, string> = {
 
 const BUTTON = "inline-flex min-h-12 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold disabled:opacity-40";
 
-export function StepStateIcon({ state }: { state: StepState }) {
+/** The step-state icon, coloured by state. An operator-cancelled step reads
+ *  as cancelled, neutral, not failed. */
+export function StepStateIcon({ step }: { step: SetupStep }) {
   const cls = "h-4 w-4 shrink-0";
-  switch (state) {
+  if (isCancelled(step)) return <MinusCircle className={cn(cls, "text-text-tertiary")} aria-hidden />;
+  switch (step.state) {
     case "done":
       return <CheckCircle2 className={cn(cls, "text-status-success")} aria-hidden />;
     case "failed":
@@ -167,43 +171,22 @@ export function StepCard({ step, busy, error, onAction }: StepCardProps) {
   }
 
   const title = setupText(step.title_key, step.args);
-  // A step whose inputs are a picture picker shows the pictures there only.
-  const picker = step.inputs.some((i) => Object.keys(i.images).length > 0);
-  const image = motorSvg || picker ? null : setupImageUrl(step.image);
+  // A step whose inputs carry pictures (the frame layouts, the wing types):
+  // the picture picker is the visual, so the step's own picture is not drawn.
+  const pickers = step.inputs.filter((i) => Object.keys(i.images).length > 0);
+  const fields = step.inputs.filter((i) => Object.keys(i.images).length === 0);
+  const image = motorSvg || pickers.length ? null : setupImageUrl(step.image);
   const live = liveRows(step);
   const showRing = step.progress !== null || step.state === "running";
-  const result = step.result ? Object.entries(step.result) : [];
+  const result = resultRows(step.result);
   const { primary, secondary } = splitActions(step);
+  const input = (i: StepInput) => (
+    <InputField key={i.name} input={i} value={i.name in edits ? edits[i.name] : i.value} onChange={(v) => setEdits((e) => ({ ...e, [i.name]: v }))} />
+  );
 
-  return (
-    <section className="flex flex-col gap-4 rounded-lg border border-border-default bg-bg-secondary p-4" data-testid="setup-step-card" data-step={step.step} data-state={step.state}>
-      <header className="flex items-start justify-between gap-2">
-        <h2 className="text-xl font-semibold text-text-primary">{title}</h2>
-        <StepStateBadge state={step.state} />
-      </header>
-
-      {(image || motorSvg || showRing) && (
-        <div className="flex flex-wrap items-center justify-center gap-6">
-          {motorSvg ? (
-            <div
-              role="img"
-              aria-label={title}
-              data-testid="setup-motor-diagram"
-              className="w-full max-w-md rounded-md bg-black/80 p-2 [&>svg]:h-auto [&>svg]:w-full"
-              // The spec's own motor-order picture, with one motor recoloured.
-              dangerouslySetInnerHTML={{ __html: motorSvg }}
-            />
-          ) : (
-            image && (
-              // The spec draws these as light line art for a dark surface.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={image} alt={title} className="max-h-72 w-full max-w-md rounded-md bg-black/80 object-contain p-2" />
-            )
-          )}
-          {showRing && <ProgressRing value={step.progress} size={image || motorSvg ? 112 : 72} />}
-        </div>
-      )}
-
+  // What to do now: the sentence, the question, the fields, then the action.
+  const doNow = (
+    <div className="flex min-w-0 flex-col gap-4">
       {step.body_key && <p className="whitespace-pre-line text-base text-text-primary">{setupText(step.body_key, step.args)}</p>}
 
       {question && (
@@ -212,29 +195,15 @@ export function StepCard({ step, busy, error, onAction }: StepCardProps) {
         </p>
       )}
 
-      {step.inputs.length > 0 && (
-        // Picture pickers two to a row, the number and choice fields three.
-        <div className="flex flex-col gap-4">
-          {[step.inputs.filter((i) => Object.keys(i.images).length > 0), step.inputs.filter((i) => Object.keys(i.images).length === 0)].map((group, g) =>
-            group.length > 0 ? (
-              <div key={g} className={cn("grid grid-cols-1 gap-4", g === 0 ? "lg:grid-cols-2" : "sm:grid-cols-2 xl:grid-cols-3")}>
-                {group.map((input) => (
-                  <InputField
-                    key={input.name}
-                    input={input}
-                    value={input.name in edits ? edits[input.name] : input.value}
-                    onChange={(v) => setEdits((e) => ({ ...e, [input.name]: v }))}
-                  />
-                ))}
-              </div>
-            ) : null,
-          )}
-        </div>
+      {fields.length > 0 && (
+        // As many across as fit (prop, KV and cells on one row when there is room).
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(8.5rem,1fr))] gap-3">{fields.map(input)}</div>
       )}
 
       {live.length > 0 && <ValueTable title={t("live")} group="live" rows={live} args={step.args} />}
 
-      {step.blockers.length > 0 && (
+      {/* An operator cancel already reads on the state badge, neutral. */}
+      {step.blockers.length > 0 && !isCancelled(step) && (
         <ul className="flex flex-col gap-1 rounded-md border border-status-error/40 bg-status-error/10 px-3 py-2 text-sm text-status-error">
           {step.blockers.map((b) => (
             <li key={b} className="flex items-start gap-2">
@@ -261,7 +230,7 @@ export function StepCard({ step, busy, error, onAction }: StepCardProps) {
       )}
 
       {step.actions.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3" data-testid="setup-actions">
           {primary.map((a) => (
             <SetupActionButton key={a.id} action={a} step={step} disabled={busy} onFire={fire} className={PRIMARY_LARGE} />
           ))}
@@ -272,6 +241,50 @@ export function StepCard({ step, busy, error, onAction }: StepCardProps) {
       )}
 
       {step.params.length > 0 && <ParamTable step={step.step} rows={step.params} />}
+    </div>
+  );
+
+  return (
+    <section className="flex flex-col gap-4 rounded-lg border border-border-default bg-bg-secondary p-4" data-testid="setup-step-card" data-step={step.step} data-state={step.state}>
+      <header className="flex items-start justify-between gap-2">
+        <h2 className="text-xl font-semibold text-text-primary">{title}</h2>
+        <StepStateBadge step={step} />
+      </header>
+
+      {(image || motorSvg || showRing) && (
+        <div className="flex flex-wrap items-center justify-center gap-6">
+          {motorSvg ? (
+            <div
+              role="img"
+              aria-label={title}
+              data-testid="setup-motor-diagram"
+              className="w-full max-w-md rounded-md bg-black/80 p-2 [&>svg]:h-auto [&>svg]:w-full"
+              // The spec's own motor-order picture, with one motor recoloured.
+              dangerouslySetInnerHTML={{ __html: motorSvg }}
+            />
+          ) : (
+            image && (
+              // The spec draws these as light line art for a dark surface.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={image} alt={title} className="max-h-72 w-full max-w-md rounded-md bg-black/80 object-contain p-2" />
+            )
+          )}
+          {showRing && <ProgressRing value={step.progress} size={image || motorSvg ? 112 : 72} />}
+        </div>
+      )}
+
+      {pickers.length > 0 ? (
+        // The picture pickers (frame class and type, wing) sit left of what to
+        // do on a wide screen, one row of tiles each; narrow, they stack above it.
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
+          <div className="flex min-w-0 shrink-0 flex-col gap-4" data-testid="setup-pickers">
+            {pickers.map(input)}
+          </div>
+          <div className="min-w-0 lg:min-w-[18rem] lg:flex-1">{doNow}</div>
+        </div>
+      ) : (
+        doNow
+      )}
     </section>
   );
 }
@@ -311,7 +324,9 @@ export function StepDoneBanner({ step }: { step: SetupStep }) {
 }
 
 /** The parameters a step will write, closed under "What this changes", each
- *  with what it is for when the spec says (the obstacle backstop rows). */
+ *  with what it is for when the spec says (the obstacle backstop rows), and
+ *  the FC's current value → the new one when the engine read it. A row the FC
+ *  already holds reads dim. */
 function ParamTable({ step, rows }: { step: string; rows: ParamRow[] }) {
   const heading = `setup.${step}.params`;
   return (
@@ -326,13 +341,18 @@ function ParamTable({ step, rows }: { step: string; rows: ParamRow[] }) {
         <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 text-sm">
           {rows.map((r) => {
             const note = paramNote(step, r.name);
+            const have = r.have ?? null;
+            const same = have !== null && have === r.value;
             return (
-              <div key={r.name} className="contents">
+              <div key={r.name} className={cn("contents", same && "[&>*]:opacity-50")} data-same={same || undefined}>
                 <dt className="min-w-0 text-text-secondary">
                   <span className="font-mono text-text-primary">{r.name}</span>
                   {note && <span className="block text-xs">{note}</span>}
                 </dt>
-                <dd className="text-right font-mono tabular-nums text-text-primary">{formatValue(r.value)}</dd>
+                <dd className="text-right font-mono tabular-nums text-text-primary">
+                  {have !== null && !same && <span className="text-text-tertiary">{formatValue(have)} → </span>}
+                  {formatValue(r.value)}
+                </dd>
               </div>
             );
           })}
@@ -373,12 +393,13 @@ function ValueTable({
 const INTRO_ICONS = [Navigation, ShieldCheck, Gamepad2];
 
 /** The step's state as an icon and its word, in a card header. */
-function StepStateBadge({ state }: { state: StepState }) {
+function StepStateBadge({ step }: { step: SetupStep }) {
   const t = useTranslations("aircraftSetup");
+  const cancelled = isCancelled(step);
   return (
-    <span className="flex shrink-0 items-center gap-1 text-xs text-text-secondary">
-      <StepStateIcon state={state} />
-      {t(`stepState.${state}`)}
+    <span className="flex shrink-0 items-center gap-1 text-xs text-text-secondary" data-testid="setup-step-state">
+      <StepStateIcon step={step} />
+      {cancelled ? setupText("setup.state.cancelled") : t(`stepState.${step.state}`)}
     </span>
   );
 }
@@ -401,7 +422,7 @@ function MeetAdosPilot({ step, busy, error, onFire }: { step: SetupStep; busy: b
     <section className="mx-auto flex w-full max-w-xl flex-col gap-4 rounded-xl border border-accent-primary/40 bg-bg-secondary p-6" data-testid="setup-step-card" data-step={step.step} data-state={step.state}>
       <header className="flex items-start justify-between gap-2">
         <h2 className="text-2xl font-semibold text-text-primary">{setupText(step.title_key, step.args)}</h2>
-        <StepStateBadge state={step.state} />
+        <StepStateBadge step={step} />
       </header>
       <ol className="flex flex-col gap-3">
         {lines.map((line, i) => {

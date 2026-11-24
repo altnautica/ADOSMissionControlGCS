@@ -34,7 +34,7 @@ import {
   startWizard,
   type SetupTransport,
 } from "./client";
-import { applyFrame, withStep, withWizard } from "./parse";
+import { applyFrame, needsFullStatus, withStep, withWizard } from "./parse";
 import { setupRefusalText } from "./strings";
 import type { SetupStatus, SetupStep, SetupValue, Wizard } from "./types";
 
@@ -60,6 +60,11 @@ export interface FcSetupController {
   /** Restore a parameter snapshot; resolves to the restored count, or null on failure. */
   revert: (snapshot: string) => Promise<number | null>;
 }
+
+/** The least time between the full status reads a stream frame triggers
+ *  while the status lacks the FC's identity; keepalives arrive at 1 Hz, so
+ *  this holds those reads to one every 2 s. */
+const FRAME_REREAD_MS = 2000;
 
 function requestMessage(err: unknown): string {
   const key = setupErrorKey(err);
@@ -89,17 +94,30 @@ export function useFcSetup(transport: SetupTransport | null): FcSetupController 
   const [requestError, setRequestError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const live = useRef(true);
+  const statusRef = useRef<SetupStatus | null>(null);
+  /** A read is in flight; the last read failed; when the last read started. */
+  const reading = useRef(false);
+  const failed = useRef(false);
+  const lastRead = useRef(0);
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   const refresh = useCallback(async () => {
     if (!transport) return;
+    reading.current = true;
+    lastRead.current = Date.now();
     try {
       const next = await fetchSetupStatus(transport);
+      failed.current = false;
       if (!live.current) return;
       setStatus(next);
       setLoadError(null);
     } catch (err) {
+      failed.current = true;
       if (live.current) setLoadError(requestMessage(err));
     } finally {
+      reading.current = false;
       if (live.current) setLoading(false);
     }
   }, [transport]);
@@ -108,8 +126,16 @@ export function useFcSetup(transport: SetupTransport | null): FcSetupController 
     live.current = true;
     if (!transport) return;
     void refresh();
+    // Each (re)connect re-reads the whole status. A frame re-reads it while
+    // the last read failed or had no FC identity (taken while the agent was
+    // restarting): frames never carry the uid or firmware, so the screen
+    // would otherwise stay stale until a reload.
     const stop = transport.openStream(
-      (frame) => setStatus((s) => (s ? applyFrame(s, frame) : s)),
+      (frame) => {
+        setStatus((s) => (s ? applyFrame(s, frame) : s));
+        const due = !reading.current && Date.now() - lastRead.current >= FRAME_REREAD_MS;
+        if (due && (failed.current || needsFullStatus(statusRef.current))) void refresh();
+      },
       () => void refresh(),
     );
     return () => {

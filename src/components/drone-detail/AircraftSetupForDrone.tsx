@@ -15,7 +15,16 @@ import { useTranslations } from "next-intl";
 import { AircraftSetupView } from "@/components/aircraft-setup/AircraftSetupView";
 import { useDroneSetupTransport, useFcSetup } from "@/lib/fc-setup/use-fc-setup";
 
-export function AircraftSetupForDrone({ droneId, droneName }: { droneId: string; droneName: string }) {
+export function AircraftSetupForDrone({
+  droneId,
+  droneName,
+  initialStep,
+}: {
+  droneId: string;
+  droneName: string;
+  /** A step to open first (a link's `?step=`). */
+  initialStep?: string;
+}) {
   const t = useTranslations("aircraftSetup");
   const transport = useDroneSetupTransport(droneId);
   const setup = useFcSetup(transport);
@@ -23,7 +32,7 @@ export function AircraftSetupForDrone({ droneId, droneName }: { droneId: string;
     <section className="flex flex-col gap-3" aria-label={t("settingUp", { name: droneName })}>
       <h2 className="text-sm font-semibold text-text-primary">{t("settingUp", { name: droneName })}</h2>
       {transport ? (
-        <AircraftSetupView setup={setup} droneId={droneId} />
+        <AircraftSetupView setup={setup} droneId={droneId} initialStep={initialStep} />
       ) : (
         <p className="rounded-md border border-border-default bg-bg-secondary px-4 py-3 text-sm text-text-secondary">
           {t("noAgent")}

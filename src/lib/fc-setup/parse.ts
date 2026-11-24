@@ -68,7 +68,9 @@ function parseParams(raw: unknown): ParamRow[] {
   const out: ParamRow[] = [];
   for (const r of raw) {
     const name = isObj(r) ? str(r.name) : null;
-    if (name && isObj(r) && isScalar(r.value)) out.push({ name, value: r.value });
+    if (name && isObj(r) && isScalar(r.value)) {
+      out.push({ name, value: r.value, have: typeof r.have === "number" && Number.isFinite(r.have) ? r.have : null });
+    }
   }
   return out;
 }
@@ -289,6 +291,13 @@ export function applyFrame(status: SetupStatus, frame: SetupFrame): SetupStatus 
     case "keepalive":
       return status;
   }
+}
+
+/** Whether the status needs a full read: none yet, or one taken while the
+ *  agent was still restarting (no uid or firmware yet), which stream frames
+ *  never fill in. */
+export function needsFullStatus(status: SetupStatus | null): boolean {
+  return !status || !status.uid || !status.firmware;
 }
 
 /** The step a wizard is on: the active one, else the first failed, else the

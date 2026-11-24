@@ -65,13 +65,47 @@ describe("aircraft setup overview", () => {
     await screen.findByText(setupText("setup.overview.step_done", { title: setupText("setup.frame.title") }));
   });
 
-  it("reads Run again once the run was aborted, without the interrupted notice", async () => {
+  it("Run again asks for a hold-to-confirm; the cancelled step reads Cancelled, not needing attention", async () => {
     const demo = demoSetupTransport("overview-test");
-    // Abort the interrupted run so the wizard reads as never finished.
+    await demo.post(fcSetupUrls.resume("ground"), {});
     await demo.post(fcSetupUrls.abort("ground"), {});
     render(<Harness transport={demo} />, { wrapper: IntlWrapper });
     const primary = await screen.findByTestId("setup-start");
     expect(primary.getAttribute("data-kind")).toBe("run_again");
     expect(screen.queryByTestId("setup-interrupted")).toBeNull();
+    // The aborted frame step is cancelled: neutral, not "Needs attention".
+    expect(screen.getByTestId("setup-card-frame").getAttribute("data-state")).toBe("not_set");
+    fireEvent.click(primary);
+    const confirm = screen.getByTestId("setup-confirm");
+    expect(confirm.textContent).toContain("Start this setup over?");
+    expect(within(confirm).getByTestId("setup-confirm-hold")).toBeTruthy();
+    fireEvent.keyDown(confirm, { key: "Escape" });
+    expect(screen.queryByTestId("setup-confirm")).toBeNull();
+  });
+
+  it("a step run on its own after the wizard was filed counts as a run in progress", async () => {
+    const demo = demoSetupTransport("overview-test");
+    await demo.post(fcSetupUrls.resume("ground"), {});
+    await demo.post(fcSetupUrls.abort("ground"), {});
+    await demo.post(fcSetupUrls.run("ground", "battery"), {});
+    render(<Harness transport={demo} />, { wrapper: IntlWrapper });
+    const primary = await screen.findByTestId("setup-start");
+    expect(primary.getAttribute("data-kind")).toBe("continue");
+    expect(screen.getByTestId("setup-wizard-tab-ground").textContent).toContain("Running");
+    fireEvent.click(primary);
+    const card = await screen.findByTestId("setup-step-card");
+    expect(card.getAttribute("data-step")).toBe("battery");
+    // The ground Abort asks first.
+    fireEvent.click(screen.getByTestId("setup-abort"));
+    expect(screen.getByTestId("setup-confirm").textContent).toContain("Abort setup?");
+  });
+
+  it("flight tuning reads After setup until the ground wizard is done; the FC id sits behind Details", async () => {
+    render(<Harness transport={demoSetupTransport("overview-test")} />, { wrapper: IntlWrapper });
+    const tab = await screen.findByTestId("setup-wizard-tab-air");
+    expect(tab.textContent).toContain(setupText("setup.card.state.after_setup"));
+    const fc = screen.getByTestId("setup-fc");
+    expect(fc.textContent).toContain("ArduCopter 4.5.7");
+    expect(within(fc).getByText("Details")).toBeTruthy();
   });
 });

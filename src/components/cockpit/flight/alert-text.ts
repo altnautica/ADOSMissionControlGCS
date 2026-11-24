@@ -18,6 +18,7 @@ const TEXT = {
   "param.name": "Parameter",
   "param.current": "Current",
   "param.wanted": "Wanted",
+  "param.new": "New",
   "param.notReported": "not reported",
   "param.showAll": "Show all {count}",
   "param.showFewer": "Show fewer",
@@ -32,7 +33,11 @@ const TEXT = {
   "action.cancel": "Cancel",
   groundHint: "Fix from the drone's Aircraft setup (Mission Control or the drone's cockpit)",
   "apply.reading": "Reading the recommended values…",
-  "apply.writes": "Values to write",
+  "apply.changes_one": "{count} value changes",
+  "apply.changes_other": "{count} values change",
+  "apply.nothingToChange": "Every value is already set",
+  "apply.alreadySet": "{count} already set",
+  "apply.reboots": "The flight controller will restart",
   "apply.snapshot": "A snapshot is saved first; you can restore it from Aircraft setup › Setup report.",
   "apply.writing": "Writing values…",
   "apply.done": "Recommended values written",
@@ -42,7 +47,7 @@ const TEXT = {
   "chip.warnings": "Warnings ({count})",
 } as const;
 
-export type AlertTextKey = "warnings" | keyof typeof TEXT;
+export type AlertTextKey = "warnings" | "apply.changes" | keyof typeof TEXT;
 
 /** The alert centre's text for `key`, `{count}` filled in. */
 export function alertText(key: AlertTextKey, args: { count?: number } = {}): string {

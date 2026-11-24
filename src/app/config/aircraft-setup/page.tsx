@@ -24,8 +24,11 @@ export default function AircraftSetupPage() {
   const drones = useFleetDrones(selectFleet, FLEET_EQUAL);
   const router = useRouter();
   // `?drone=<id>` names the drone, so a reload or a shared link opens the
-  // same drone's setup instead of an empty page.
-  const urlDrone = useSearchParams()?.get("drone") ?? null;
+  // same drone's setup instead of an empty page; `&step=<id>` opens that
+  // step (an alert's "Open setup").
+  const params = useSearchParams();
+  const urlDrone = params?.get("drone") ?? null;
+  const urlStep = params?.get("step") ?? undefined;
   useEffect(() => {
     if (urlDrone && urlDrone !== droneId && drones.some((d) => d.id === urlDrone)) selectDrone(urlDrone);
   }, [urlDrone, droneId, drones, selectDrone]);
@@ -71,7 +74,7 @@ export default function AircraftSetupPage() {
           </select>
         </label>
         {selected ? (
-          <AircraftSetupForDrone droneId={selected.id} droneName={selected.name} />
+          <AircraftSetupForDrone droneId={selected.id} droneName={selected.name} initialStep={urlStep} />
         ) : (
           <p className="rounded-md border border-border-default bg-bg-secondary px-4 py-3 text-sm text-text-secondary">
             {t("noDrone")}

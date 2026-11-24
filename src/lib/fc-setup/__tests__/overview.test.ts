@@ -1,8 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import { fcSetupUrls } from "../client";
-import { cardState, cardSummary, cardTarget, overviewPrimary, wizardCards, wizardProgress } from "../overview";
-import { parseInput, parseStatus, parseWizard } from "../parse";
+import {
+  cardState,
+  cardSummary,
+  cardTarget,
+  filedSteps,
+  firmwareLabel,
+  overviewPrimary,
+  readinessFlags,
+  resultRows,
+  runningStep,
+  snapshotTime,
+  wizardCards,
+  wizardProgress,
+} from "../overview";
+import { needsFullStatus, parseInput, parseStatus, parseWizard } from "../parse";
 import { motorOrderMarkup, setupText } from "../strings";
 import type { SetupStep, StepState, Wizard, WizardState } from "../types";
 import { readFileSync } from "node:fs";
@@ -119,5 +132,71 @@ describe("motor order diagram", () => {
     expect(marked).not.toBeNull();
     expect(marked).toContain('r="22" style="fill:var(--color-status-warning');
     expect(motorOrderMarkup(svg, 9)).toBeNull();
+  });
+});
+
+describe("a run in progress", () => {
+  it("reads Continue whatever the wizard is filed as", () => {
+    expect(overviewPrimary("done", true).kind).toBe("continue");
+    expect(overviewPrimary("aborted", true).kind).toBe("continue");
+    expect(overviewPrimary("done", false).kind).toBe("run_again");
+    const status = parseStatus({ uid: "fc", running: { wizard: "ground", step: "battery" }, wizards: [{ id: "ground", state: "done", steps: [] }] })!;
+    expect(runningStep(status, status.wizards[0])).toBe("battery");
+  });
+
+  it("re-reads the full status while it has no FC identity", () => {
+    expect(needsFullStatus(null)).toBe(true);
+    expect(needsFullStatus(parseStatus({ uid: null, wizards: [] }))).toBe(true);
+    expect(needsFullStatus(parseStatus({ uid: "fc", firmware: null, wizards: [] }))).toBe(true);
+    expect(needsFullStatus(parseStatus({ uid: "fc", firmware: "ardupilot", wizards: [] }))).toBe(false);
+  });
+});
+
+describe("filed and flagged cards", () => {
+  it("counts a done wizard's unrecorded steps as done", () => {
+    const w = wizard("done", [step("frame", "pending"), step("accel", "failed"), step("battery", "done")]);
+    expect(filedSteps(w).map((s) => s.state)).toEqual(["done", "failed", "done"]);
+    expect(wizardProgress(w)).toEqual({ done: 2, total: 3 });
+  });
+
+  it("flags Safety for apply_profile and the named step for setup_step, with the reason", () => {
+    const flags = readinessFlags([
+      { id: "fc_profile", ok: false, severity: "block", msg: "FC parameters differ", params: [{ name: "MAV_GCS_SYSID", have: 255, want: "1" }], fix: { kind: "apply_profile" } },
+      { id: "firmware", ok: false, severity: "warn", msg: "Firmware not detected", fix: { kind: "setup_step", step: "frame" } },
+      { id: "flow", ok: true, severity: "warn", msg: "fine", fix: { kind: "setup_step", step: "accel" } },
+    ]);
+    expect(flags.get("ados_profile")).toBe("MAV_GCS_SYSID 255 → 1");
+    expect(flags.get("frame")).toBe("Firmware not detected");
+    expect(flags.has("accel")).toBe(false);
+    const w = wizard("done", [step("frame", "done"), step("ados_profile", "done")]);
+    const cards = wizardCards(w, flags);
+    const safety = cards.find((c) => c.id === "safety")!;
+    expect(safety.state).toBe("attention");
+    expect(safety.flag).toBe("MAV_GCS_SYSID 255 → 1");
+    expect(cardSummary(safety)).toBe("MAV_GCS_SYSID 255 → 1");
+    expect(cardTarget(safety, flags).step).toBe("ados_profile");
+  });
+
+  it("reads an operator cancel as neutral and a wizard waiting on ground as After setup", () => {
+    const cancelled = step("compass", "failed", { blockers: ["setup.blocker.cancelled"] });
+    expect(cardState([cancelled])).toBe("not_set");
+    expect(cardState([step("compass", "failed", { blockers: ["setup.blocker.timeout"] })])).toBe("attention");
+    const air: Wizard = { ...wizard("not_started", [step("autotune", "pending")]), id: "air", blockers: ["setup.blocker.ground_required"] };
+    expect(wizardCards(air)[0].state).toBe("after_setup");
+  });
+});
+
+describe("operator copy", () => {
+  it("names firmware as its project writes it, hides internal keys and dates a snapshot", () => {
+    expect(firmwareLabel("ardupilot")).toBe("ArduPilot");
+    expect(firmwareLabel("PX4")).toBe("PX4");
+    expect(firmwareLabel("betaflight")).toBe("Betaflight");
+    expect(snapshotTime("2026-11-24T13-09-07Z.param")).toBe(new Date("2026-11-24T13:09:07Z").toLocaleString());
+    expect(snapshotTime("not a date")).toBeNull();
+    const rows = resultRows({ firmware: "px4", uid: "abc", uid_source: "x", snapshot: "2026-11-24T13-09-07-123Z.param" });
+    expect(rows).toEqual([
+      ["firmware", "PX4"],
+      ["snapshot", new Date("2026-11-24T13:09:07Z").toLocaleString()],
+    ]);
   });
 });

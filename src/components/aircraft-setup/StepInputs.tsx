@@ -58,12 +58,19 @@ export function InputField({ input, value, onChange }: { input: StepInput; value
   return (
     <fieldset className="flex flex-col gap-1 text-xs text-text-secondary" data-testid={`setup-input-${input.name}`}>
       <legend className="mb-1 text-sm font-medium text-text-primary">{label}</legend>
-      <div className={pictures ? "grid grid-cols-[repeat(auto-fill,minmax(6rem,8.5rem))] gap-2" : "flex flex-wrap gap-1.5"}>
+      <div
+        className={
+          // Picture tiles 8 rem wide: one row per picker beside the step's
+          // fields on a wide screen, wrapping only on a narrow one.
+          pictures ? "grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-2 lg:auto-cols-[8rem] lg:grid-flow-col lg:grid-cols-none" : "flex flex-wrap gap-1.5"
+        }
+      >
         {options.map(({ value: o, label_key }) => {
           const on = o === value;
           const text = optionText(input.label_key, o, label_key);
           if (pictures) {
-            const image = setupImageUrl(input.images[String(o)] ?? null);
+            const key = input.images[String(o)] ?? null;
+            const image = setupImageUrl(key);
             return (
               <button
                 key={String(o)}
@@ -71,16 +78,25 @@ export function InputField({ input, value, onChange }: { input: StepInput; value
                 aria-pressed={on}
                 onClick={() => onChange(o)}
                 className={cn(
-                  "flex min-h-12 flex-col items-center gap-1.5 rounded-lg border-2 p-2 text-sm",
+                  "flex min-h-12 flex-col items-center gap-1 rounded-lg border-2 p-1.5 text-sm",
                   on ? "border-accent-primary bg-accent-primary/10 text-text-primary" : "border-border-default bg-bg-secondary text-text-secondary hover:bg-bg-tertiary",
                 )}
               >
-                {image && (
-                  // Light line art drawn for a dark surface.
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={image} alt="" className="h-14 w-full rounded-md bg-black/80 object-contain p-1" />
-                )}
-                <span className={cn("font-medium", on && "text-accent-primary")}>{text}</span>
+                {image &&
+                  (key?.startsWith("motor_order_") ? (
+                    // Light line art drawn for a dark surface. A motor-order
+                    // picture is cropped square to its motors and spin arrows
+                    // (its corner title and legend repeat the tile's label),
+                    // so the motor numbers read at tile size.
+                    <span className="block aspect-square w-full overflow-hidden rounded-md bg-black/80">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={image} alt="" className="h-full w-full scale-[1.06] object-cover" />
+                    </span>
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={image} alt="" className="aspect-[16/10] w-full rounded-md bg-black/80 object-contain p-0.5" />
+                  ))}
+                <span className={cn("text-sm font-medium", on && "text-accent-primary")}>{text}</span>
               </button>
             );
           }

@@ -14,17 +14,17 @@
  * @license GPL-3.0-only
  */
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 
 import { specString } from "@/lib/cockpit/spec-strings";
 import tokens from "@/lib/cockpit-spec/tokens.json";
-import { rerunStep, runStepAction, setupErrorKey, type SetupTransport } from "@/lib/fc-setup/client";
-import { formatValue, setupText } from "@/lib/fc-setup/strings";
-import { HOLD_CONFIRM_MS, type SetupStep } from "@/lib/fc-setup/types";
+import { abortWizard, fetchSetupStatus, rerunStep, runStepAction, setupErrorKey, type SetupTransport } from "@/lib/fc-setup/client";
+import { formatValue, hasSetupText, setupText } from "@/lib/fc-setup/strings";
+import { HOLD_CONFIRM_MS, type ParamRow, type SetupStep } from "@/lib/fc-setup/types";
 import { findStep, useFcSetup } from "@/lib/fc-setup/use-fc-setup";
-import { groupAlerts, unsnoozedAlerts, type GroupedAlert, type ParamDiff, type PillAlert } from "@/lib/hud/status-pill";
+import { alertTitle, groupAlerts, unsnoozedAlerts, type GroupedAlert, type ParamDiff, type PillAlert } from "@/lib/hud/status-pill";
 import { HoldButton } from "../v2/HoldButton";
 import { alertText } from "./alert-text";
 
@@ -123,31 +123,179 @@ type ApplyPhase =
   | { phase: "done" }
   | { phase: "error"; text: string };
 
+/** An engine code in words: `setup.err.<code>`, else `setup.blocker.<code>`,
+ *  else the key itself when the spec has it; never the raw key. */
+function codeText(code: string): string {
+  for (const key of [`setup.err.${code}`, `setup.blocker.${code}`, code]) {
+    if (hasSetupText(key)) return setupText(key);
+  }
+  return alertText("apply.failed");
+}
+
+/** A refused request in words. */
 function errorText(err: unknown): string {
   const key = setupErrorKey(err);
-  if (!key) return err instanceof Error ? err.message : String(err);
-  // The engine answers some refusals with a bare blocker name (`armed`).
-  return setupText(key.includes(".") ? key : `setup.blocker.${key}`);
+  return key ? codeText(key) : alertText("apply.failed");
 }
 
 /** The step's own failure text, else the generic one. */
 function stepFailure(step: SetupStep): string {
-  return step.blockers.length > 0 ? setupText(step.blockers[0]) : alertText("apply.failed");
+  return step.blockers.length > 0 ? codeText(step.blockers[0]) : alertText("apply.failed");
 }
 
-/** "Apply recommended values": run the ground wizard's ADOS profile step
- *  (it writes nothing yet and lists what it would write), show those values,
- *  and write them on a hold. The engine refuses while armed and snapshots
- *  every parameter before the first write. */
-export function ApplyProfileFix({ transport, setup }: { transport: SetupTransport; setup: (step?: string) => FixLink }) {
+/** Whether the FC already holds the value a profile row writes. A float read
+ *  back from the FC may carry single-precision noise. */
+function rowAlreadySet(p: ParamRow): boolean {
+  if (p.have === null || p.have === undefined) return false;
+  const want = Number(p.value);
+  if (!Number.isFinite(want)) return false;
+  return Math.abs(p.have - want) <= 1e-6 * Math.max(1, Math.abs(want));
+}
+
+/** The profile rows a write changes, and those the FC already holds. */
+export function splitProfileRows(rows: readonly ParamRow[]): { changes: ParamRow[]; same: ParamRow[] } {
+  const changes: ParamRow[] = [];
+  const same: ParamRow[] = [];
+  for (const p of rows) (rowAlreadySet(p) ? same : changes).push(p);
+  return { changes, same };
+}
+
+function ReviewRow({ p, testId }: { p: ParamRow; testId: string }) {
+  const unknown = p.have === null || p.have === undefined;
+  return (
+    <tr data-testid={testId} className="border-t border-white/10">
+      <td className="py-[3px] pr-2 font-mono">{p.name}</td>
+      <td className={`py-[3px] pr-1 text-right ${unknown ? DIM : ""}`}>{unknown ? alertText("param.notReported") : formatValue(p.have)}</td>
+      <td aria-hidden className={`px-1 ${DIM}`}>
+        →
+      </td>
+      <td className="py-[3px] font-semibold">{formatValue(p.value)}</td>
+    </tr>
+  );
+}
+
+/** What a write of the ADOS profile changes: each changed row as current →
+ *  new, the rows already set folded behind "N already set", and the restart
+ *  line when applying reboots the FC (`args.reboots`). */
+export function ProfileReview({ step }: { step: SetupStep }) {
+  const [showSame, setShowSame] = useState(false);
+  const { changes, same } = splitProfileRows(step.params);
+  return (
+    <div className="flex flex-col gap-1.5" data-testid="alert-apply-writes">
+      <div className="text-[11px] font-semibold uppercase tracking-wide opacity-80">
+        {changes.length > 0 ? alertText("apply.changes", { count: changes.length }) : alertText("apply.nothingToChange")}
+      </div>
+      {changes.length > 0 ? (
+        <table className="w-full border-collapse text-[11px] tabular-nums">
+          <thead className="sr-only">
+            <tr>
+              <th>{alertText("param.name")}</th>
+              <th>{alertText("param.current")}</th>
+              <th aria-hidden />
+              <th>{alertText("param.new")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {changes.map((p) => (
+              <ReviewRow key={p.name} p={p} testId="alert-apply-change" />
+            ))}
+          </tbody>
+        </table>
+      ) : null}
+      {same.length > 0 ? (
+        <div>
+          <button
+            type="button"
+            aria-expanded={showSame}
+            onClick={() => setShowSame(!showSame)}
+            className={`fs-hit flex min-h-[48px] items-center gap-1.5 px-1 text-[11px] ${DIM}`}
+            data-testid="alert-apply-same-toggle"
+          >
+            {showSame ? <ChevronDown className="h-3 w-3" aria-hidden /> : <ChevronRight className="h-3 w-3" aria-hidden />}
+            {alertText("apply.alreadySet", { count: same.length })}
+          </button>
+          {showSame ? (
+            <table className={`w-full border-collapse text-[11px] tabular-nums ${DIM}`}>
+              <tbody>
+                {same.map((p) => (
+                  <ReviewRow key={p.name} p={p} testId="alert-apply-same" />
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+        </div>
+      ) : null}
+      {step.args.reboots === true ? (
+        <p role="note" className="text-[11px] font-semibold" style={{ color: "var(--fs-warn)" }} data-testid="alert-apply-reboots">
+          {alertText("apply.reboots")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** The ADOS profile step this fix runs, when the engine already holds it
+ *  waiting for the operator (an earlier review left open, here or on another
+ *  client); null otherwise. */
+async function openReview(transport: SetupTransport): Promise<SetupStep | null> {
+  const { wizard, step: stepId } = APPLY_PROFILE_STEP;
+  const status = await fetchSetupStatus(transport);
+  if (status.running?.wizard !== wizard || status.running.step !== stepId) return null;
+  const step = findStep(status, wizard, stepId);
+  return step && step.state === "waiting_user" ? step : null;
+}
+
+/** "Apply recommended values": run the ground wizard's ADOS profile step (it
+ *  writes nothing yet and lists what it would write), show what changes, and
+ *  write on a hold. The engine refuses while armed and snapshots every
+ *  parameter before the first write. While the review shows, the engine holds
+ *  that step open: Cancel, or the row going away, aborts it so Aircraft setup
+ *  is not left blocked by a step nothing shows. `onReview` reports while the
+ *  review (or its write) is up, so the row hides its own table. */
+export function ApplyProfileFix({
+  transport,
+  setup,
+  onReview,
+}: {
+  transport: SetupTransport;
+  setup: (step?: string) => FixLink;
+  onReview?: (open: boolean) => void;
+}) {
   const [s, setS] = useState<ApplyPhase>({ phase: "idle" });
   const { wizard, step: stepId } = APPLY_PROFILE_STEP;
+  const phase = useRef(s.phase);
+  const transportRef = useRef(transport);
+  useEffect(() => {
+    phase.current = s.phase;
+    transportRef.current = transport;
+    onReview?.(s.phase === "review" || s.phase === "writing");
+  }, [s.phase, transport, onReview]);
+  // Unmounting with the review up aborts the step it holds open.
+  useEffect(
+    () => () => {
+      if (phase.current === "review") abortWizard(transportRef.current, wizard).catch(() => undefined);
+    },
+    [wizard],
+  );
+  const reviewOrFail = (step: SetupStep) =>
+    setS(step.state === "failed" ? { phase: "error", text: stepFailure(step) } : { phase: "review", step });
   const read = () => {
     setS({ phase: "reading" });
-    rerunStep(transport, wizard, stepId).then(
-      (step) => setS(step.state === "failed" ? { phase: "error", text: stepFailure(step) } : { phase: "review", step }),
-      (err: unknown) => setS({ phase: "error", text: errorText(err) }),
-    );
+    rerunStep(transport, wizard, stepId).then(reviewOrFail, (err: unknown) => {
+      // The step is already waiting from an earlier review: pick it up.
+      if (setupErrorKey(err) !== "wizard_running") {
+        setS({ phase: "error", text: errorText(err) });
+        return;
+      }
+      openReview(transport).then(
+        (step) => (step ? reviewOrFail(step) : setS({ phase: "error", text: errorText(err) })),
+        () => setS({ phase: "error", text: errorText(err) }),
+      );
+    });
+  };
+  const cancel = () => {
+    setS({ phase: "idle" });
+    abortWizard(transport, wizard).catch(() => undefined);
   };
   const write = (actionId: string) => {
     setS({ phase: "writing" });
@@ -175,15 +323,7 @@ export function ApplyProfileFix({ transport, setup }: { transport: SetupTranspor
       const action = s.step.actions.find((a) => a.style === "primary") ?? s.step.actions[0];
       return (
         <div className="flex w-full flex-col gap-1.5" data-testid="alert-apply-review">
-          <div className="text-[11px] font-semibold uppercase tracking-wide opacity-80">{alertText("apply.writes")}</div>
-          <ul className="flex flex-col text-[11px] tabular-nums" data-testid="alert-apply-writes">
-            {s.step.params.map((p) => (
-              <li key={p.name} className="flex justify-between gap-2 border-t border-white/10 py-[3px]">
-                <span className="font-mono">{p.name}</span>
-                <span className="font-semibold">{formatValue(p.value)}</span>
-              </li>
-            ))}
-          </ul>
+          <ProfileReview step={s.step} />
           <p className={`text-[11px] ${DIM}`}>{alertText("apply.snapshot")}</p>
           <div className="flex flex-wrap items-center gap-2">
             {action ? (
@@ -197,7 +337,7 @@ export function ApplyProfileFix({ transport, setup }: { transport: SetupTranspor
                 {alertText("action.apply")}
               </HoldButton>
             ) : null}
-            <button type="button" onClick={() => setS({ phase: "idle" })} className={BTN_SECONDARY}>
+            <button type="button" onClick={cancel} className={BTN_SECONDARY} data-testid="alert-apply-cancel">
               {alertText("action.cancel")}
             </button>
           </div>
@@ -244,7 +384,7 @@ function FollowApply({ transport, onEnd }: { transport: SetupTransport; onEnd: (
 
 /** A row's fix: a button, or on a drone with no setup engine the hint that
  *  names where to fix it. */
-function FixAction({ alert, actions }: { alert: PillAlert; actions: AlertActions }) {
+function FixAction({ alert, actions, onReview }: { alert: PillAlert; actions: AlertActions; onReview: (open: boolean) => void }) {
   const fix = alert.fix;
   if (!fix) return actions.extra ? <>{actions.extra(alert)}</> : null;
   switch (fix.kind) {
@@ -258,7 +398,9 @@ function FixAction({ alert, actions }: { alert: PillAlert; actions: AlertActions
           </p>
         );
       }
-      if (fix.kind === "apply_profile" && actions.transport) return <ApplyProfileFix transport={actions.transport} setup={setup} />;
+      if (fix.kind === "apply_profile" && actions.transport) {
+        return <ApplyProfileFix transport={actions.transport} setup={setup} onReview={onReview} />;
+      }
       return (
         <FixLinkButton to={setup(fix.kind === "setup_step" ? fix.step : APPLY_PROFILE_STEP.step)} primary testId="alert-fix-setup">
           {alertText("action.openSetup")}
@@ -296,6 +438,11 @@ export function AlertRow({
 }) {
   const critical = alert.severity === "critical";
   const icon = critical ? tokens.chrome.severity_icon.critical : tokens.chrome.severity_icon.warning;
+  // With a parameter table the title is the words before the colon; the full
+  // text stays the accessible name.
+  const title = alertTitle(alert);
+  // The Apply review lists what changes; the row's own table would repeat it.
+  const [reviewing, setReviewing] = useState(false);
   const snoozeButton = onSnooze ? (
     <button
       type="button"
@@ -328,11 +475,17 @@ export function AlertRow({
           <div className="min-w-0">
             <div
               data-testid="alert-item-text"
+              aria-hidden={title !== alert.text || undefined}
               className={`fs-pill-item ${alert.collapsed ? "truncate" : "break-words"}`}
               style={critical ? { color: "var(--fs-text-crit)" } : undefined}
             >
-              {alert.text}
+              {title}
             </div>
+            {title !== alert.text ? (
+              <span className="sr-only" data-testid="alert-item-fulltext">
+                {alert.text}
+              </span>
+            ) : null}
             <div data-testid="alert-item-source" className={`fs-pill-src text-[11px] ${DIM}`}>
               {specString(`cockpit.status.source.${alert.source}`)}
             </div>
@@ -341,9 +494,9 @@ export function AlertRow({
         </div>
         {alert.collapsed ? null : (
           <>
-            {alert.params && alert.params.length > 0 ? <ParamTable params={alert.params} /> : null}
+            {alert.params && alert.params.length > 0 && !reviewing ? <ParamTable params={alert.params} /> : null}
             <div className="flex flex-wrap items-center gap-2">
-              <FixAction alert={alert} actions={actions} />
+              <FixAction alert={alert} actions={actions} onReview={setReviewing} />
               {snoozeButton}
             </div>
           </>

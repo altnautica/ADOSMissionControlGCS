@@ -10251,6 +10251,19 @@
     "result": "Result",
     "holdTo": "Hold to {action}",
     "reverted": "Restored {count} parameters",
+    "details": "Details",
+    "fcId": "Flight controller ID",
+    "cancel": "Cancel",
+    "confirmRunAgain": {
+      "title": "Start this setup over?",
+      "body": "Every step's stored result is cleared and the steps run again from the start. The flight controller keeps its parameters until a step writes new ones.",
+      "confirm": "Start over"
+    },
+    "confirmAbort": {
+      "title": "Abort setup?",
+      "body": "The step in progress stops and reads Cancelled. Finished steps keep their results, and any card runs its step again.",
+      "confirm": "Abort setup"
+    },
     "stepState": {
       "pending": "Pending",
       "running": "Running",
@@ -10263,7 +10276,7 @@
       "not_started": "Not started",
       "running": "Running",
       "interrupted": "Interrupted",
-      "done": "Done",
+      "done": "Complete",
       "failed": "Failed",
       "aborted": "Aborted"
     },
