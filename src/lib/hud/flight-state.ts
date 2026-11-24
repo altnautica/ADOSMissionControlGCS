@@ -398,6 +398,16 @@ export function firstBlock(p: PilotState | null): string | null {
   return r ? shortTitle(r.msg, r.params) : null;
 }
 
+/** The chip text with the first blocking item's whole message in place of
+ *  its short title: the face reads "Not ready · FC parameters differ",
+ *  screen readers and the detail heading the full message. */
+export function chipFullHeadline(text: string, p: PilotState | null): string {
+  const r = p?.readiness.find((r) => !r.ok && r.severity === "block");
+  if (!r) return text;
+  const short = shortTitle(r.msg, r.params);
+  return short !== r.msg && text.endsWith(short) ? text.slice(0, text.length - short.length) + r.msg : text;
+}
+
 /** Facts for the chip rules from one pilot state. Exported for tests. */
 export function chipFacts(
   p: PilotState,

@@ -37,7 +37,7 @@ import { useGroundStationLink } from "@/lib/cockpit/ground-station-link";
 import { specString } from "@/lib/cockpit/spec-strings";
 import { activate, buildSkillContext } from "@/lib/skills";
 import { refusalText } from "@/lib/hud/refusal";
-import { CHIP_COMPACT_PARTS } from "@/lib/hud/flight-state";
+import { CHIP_COMPACT_PARTS, chipFullHeadline } from "@/lib/hud/flight-state";
 import { useNavStreamStore } from "@/stores/nav-stream-store";
 import { ModeSheet } from "./ModeSheet";
 import { useLaunchAbort } from "./LaunchSteps";
@@ -114,7 +114,9 @@ export function FlightStateChip({
   const polled = useNavStreamStore((s) => s.byDrone[droneId]?.transport === "poll");
   const reducedRate = polled ? specString("nav.reduced_rate") : null;
   const secondary = compact ? chip.secondary.filter((s) => CHIP_COMPACT_PARTS[s.id]) : chip.secondary;
-  const fullText = [chip.text, ...chip.secondary.map((s) => s.text), ...(reducedRate ? [reducedRate] : [])].join(" · ");
+  // The face shows the blocking item's short title; screen readers and the
+  // detail heading get its whole message.
+  const fullText = [chipFullHeadline(chip.text, pilot), ...chip.secondary.map((s) => s.text), ...(reducedRate ? [reducedRate] : [])].join(" · ");
   const maxWidth = barWidth !== undefined && barWidth > 0 ? Math.floor(barWidth * CHIP_MAX_FRAC) : undefined;
 
   return (
